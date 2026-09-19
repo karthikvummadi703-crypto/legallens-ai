@@ -23,3 +23,5 @@ venv/
 backend/data/
 backend/uploads/
 backend/scratch/
+backend/firebase-service-account.json
+firebase-service-account.json
