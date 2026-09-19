@@ -54,12 +54,14 @@ class TestRotation(unittest.TestCase):
         self.assertIn("key-B", remaining)
         self.assertIn("key-C", remaining)
 
-    def test_all_keys_cooling_down_still_retries(self):
+    def test_all_keys_cooling_down_fails_over_fast(self):
         mgr = _manager_with_keys(self.KEYS)
         for k in self.KEYS:
             mgr.report_quota_failure(k)
-        # Never hard-block: a recovered quota is picked up on retry.
-        self.assertEqual(len(list(mgr.iter_keys())), 3)
+        # Intentional: when every key is cooling down, return nothing so
+        # callers fall back to the offline engine instantly instead of stalling
+        # on a doomed round of serial failures.
+        self.assertEqual(list(mgr.iter_keys()), [])
 
     def test_success_clears_cooldown(self):
         mgr = _manager_with_keys(self.KEYS)

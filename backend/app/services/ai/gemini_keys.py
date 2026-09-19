@@ -103,8 +103,9 @@ class GeminiKeyManager:
         """Healthy keys in round-robin order.
 
         Keys on quota cooldown are skipped while any healthy key exists.
-        When every key is cooling down, all are returned so a recovered
-        quota is picked up immediately instead of hard-blocking.
+        When every key is cooling down, none are returned so callers fall
+        back to the offline engine instantly instead of stalling on a doomed
+        round of serial failures; a recovered quota is picked up on retry.
         """
         keys = self._configured_keys()
         if not keys:
