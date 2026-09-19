@@ -123,7 +123,12 @@ export const AskLegalLensPage: React.FC<AskLegalLensPageProps> = ({
     // in-flight second message).
     if (seedBoundMidChat) {
       setConversationId(effectSeed);
-      setAnalysisData(null);
+      // Keep the analysis panel populated (only the transcript restores skip).
+      if (document?.id) {
+        analysisService.getAnalysis(document.id).then((res) => {
+          if (res) setAnalysisData(res);
+        });
+      }
       return;
     }
     // ChatGPT-style: conversationId is the source of truth for history;
