@@ -58,11 +58,11 @@ async def lifespan(app: FastAPI):
     if is_cloud_mode():
         from app.utils.cloud_store import init_firebase_sdk
         if init_firebase_sdk():
-            logger.info("Cloud persistence ready (Firebase RTDB + Storage).")
+            logger.info("Cloud persistence ready (Firebase Realtime Database).")
         else:
             logger.error(
-                "Cloud persistence NOT ready. Set FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT, "
-                "FIREBASE_DATABASE_URL and FIREBASE_STORAGE_BUCKET in the deployment env."
+                "Cloud persistence NOT ready. Set FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT "
+                "and FIREBASE_DATABASE_URL in the deployment env."
             )
         yield
         return

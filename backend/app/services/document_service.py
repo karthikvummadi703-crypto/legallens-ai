@@ -71,8 +71,8 @@ class DocumentManager:
         filename = sanitize_filename(original_filename) or f"document{uuid.uuid4().hex[:8]}"
         ext = os.path.splitext(filename)[1].lower()
         
-        # Save raw uploaded file. Cloud mode persists the blob to Firebase
-        # Storage (serverless FS is read-only/ephemeral) and extracts from a
+        # Save raw uploaded file. Cloud mode persists the file to Firebase
+        # RTDB (serverless FS is read-only/ephemeral) and extracts from a
         # /tmp copy; local mode keeps the historical on-disk behaviour.
         cloud_mode = cloud_store.is_cloud_mode()
         saved_file_path = None
@@ -81,7 +81,7 @@ class DocumentManager:
             try:
                 cloud_store.blob_upload(blob_name, content)
             except Exception as e:
-                logger.error(f"Failed to persist uploaded file to Firebase Storage: {e}")
+                logger.error(f"Failed to persist uploaded file to Firebase: {e}")
                 raise ValueError("Failed to persist uploaded file.")
             saved_file_path = blob_name
             extract_path = os.path.join(tempfile.gettempdir(), f"{doc_id}_{filename}")
@@ -348,8 +348,8 @@ class DocumentManager:
             return False
         
         # Clean up the stored file if it exists. Cloud mode deletes the
-        # Storage blob when saved_path holds a cloud name, otherwise removes
-        # the local file.
+        # persisted file node when saved_path holds a cloud name, otherwise
+        # removes the local file.
         saved_path = entry.get("saved_path")
         if saved_path:
             if cloud_store.is_cloud_mode():

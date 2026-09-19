@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 
@@ -19,8 +20,8 @@ def init_firebase_sdk() -> bool:
 
     Credentials are loaded from FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT
     (serverless — raw JSON in an env var) or from the classic
-    FIREBASE_SERVICE_ACCOUNT_JSON file path. Also registers the RTDB URL and
-    Storage bucket so db/storage helpers work under the same app.
+    FIREBASE_SERVICE_ACCOUNT_JSON file path. Also registers the RTDB URL so
+    the db helpers work under the same app.
     """
     global _firebase_app, _firebase_ready, _firebase_attempted
     if _firebase_ready:
@@ -49,8 +50,6 @@ def init_firebase_sdk() -> bool:
         _options = {}
         if settings.FIREBASE_DATABASE_URL:
             _options["databaseURL"] = settings.FIREBASE_DATABASE_URL
-        if settings.FIREBASE_STORAGE_BUCKET:
-            _options["storageBucket"] = settings.FIREBASE_STORAGE_BUCKET
 
         _firebase_app = firebase_admin.initialize_app(cred, _options or None)
         _firebase_ready = True
@@ -65,7 +64,7 @@ def firebase_app():
     if not init_firebase_sdk():
         raise CloudStoreError(
             "Firebase Admin SDK is not initialized. Set FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT "
-            "plus FIREBASE_DATABASE_URL and FIREBASE_STORAGE_BUCKET."
+            "plus FIREBASE_DATABASE_URL in the deployment env."
         )
     return _firebase_app
 
@@ -101,39 +100,49 @@ def rtdb_set(node_path: str, value) -> None:
 
 
 # --------------------------------------------------------------------------
-# Firebase Cloud Storage (uploaded document blobs)
+# Document file blobs (base64 nodes inside Realtime Database)
+#
+# Firebase Cloud Storage requires the paid Blaze plan on projects created
+# after mid-2023, so blobs are kept in RTDB nodes under db/doc_files/<key>
+# instead — fully free on Spark. Base64 inflates ~33%, and a single RTDB node
+# holds ~32MB, which is far beyond any practical legal document here.
 # --------------------------------------------------------------------------
 
-def _default_bucket():
-    from firebase_admin import storage
-    return storage.bucket(app=firebase_app())
+def _blob_node_name(blob_name: str) -> str:
+    # RTDB path segments cannot contain '#', '$', '[', ']', '.', or '/'.
+    return base64.urlsafe_b64encode(blob_name.encode("utf-8")).decode("ascii")
 
 
 def blob_upload(blob_name: str, content: bytes, content_type: str = "application/octet-stream") -> None:
     try:
-        _default_bucket().blob(blob_name).upload_from_string(
-            content, content_type=content_type
-        )
-        logger.info(f"Uploaded '{blob_name}' ({len(content)} bytes) to Firebase Storage.")
+        rtdb_set(f"db/doc_files/{_blob_node_name(blob_name)}", {
+            "content": base64.b64encode(content).decode("ascii"),
+        })
+        logger.info(f"Persisted '{blob_name}' ({len(content)} bytes) to Firebase RTDB.")
+    except CloudStoreError as e:
+        raise CloudStoreError(f"Failed to persist file '{blob_name}': {e}") from e
     except Exception as e:
-        logger.error(f"Firebase Storage upload failed '{blob_name}': {e}")
-        raise CloudStoreError(f"Failed to upload file to storage: {e}") from e
+        logger.error(f"Failed to persist file '{blob_name}': {e}")
+        raise CloudStoreError(f"Failed to persist file: {e}") from e
 
 
 def blob_download(blob_name: str) -> bytes:
+    node = rtdb_get(f"db/doc_files/{_blob_node_name(blob_name)}")
+    encoded = node.get("content") if isinstance(node, dict) else None
+    if not encoded:
+        raise CloudStoreError(f"File not found in persistence: {blob_name}")
     try:
-        return _default_bucket().blob(blob_name).download_as_bytes()
+        return base64.b64decode(encoded)
     except Exception as e:
-        logger.error(f"Firebase Storage download failed '{blob_name}': {e}")
-        raise CloudStoreError(f"Failed to read file from storage: {e}") from e
+        raise CloudStoreError(f"Failed to decode stored file '{blob_name}': {e}") from e
 
 
 def blob_delete(blob_name: str) -> None:
     try:
-        _default_bucket().blob(blob_name).delete()
-        logger.info(f"Deleted Firebase Storage blob '{blob_name}'.")
+        _rtdb_ref(f"db/doc_files/{_blob_node_name(blob_name)}").delete()
+        logger.info(f"Deleted persisted file blob '{blob_name}'.")
     except Exception as e:
-        logger.warning(f"Firebase Storage delete failed '{blob_name}': {e}")
+        logger.warning(f"Failed to delete persisted file blob '{blob_name}': {e}")
 
 
 # --------------------------------------------------------------------------

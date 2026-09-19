@@ -48,13 +48,16 @@ class Settings(BaseSettings):
 
     # Storage backend:
     #   "local" (default) -> on-disk db.json, uploads/, embedded Qdrant.
-    #   "cloud"           -> Firebase Realtime Database + Firebase Cloud Storage
-    #                        (used on Vercel serverless: ephemeral, read-only FS).
+    #   "cloud"           -> Firebase Realtime Database only (JSON tree +
+    #                        base64 file nodes). Free on the Spark plan and
+    #                        ideal for Vercel serverless (ephemeral, read-only
+    #                        FS). No Firebase Storage bucket is required.
     STORAGE_BACKEND: str = "local"
 
     # Firebase Admin credentials. Use the JSON CONTENT on serverless (env var),
-    # the PATH for local file-based setups. Both required for cloud storage:
+    # the PATH for local file-based setups. Cloud storage needs:
     #   FIREBASE_DATABASE_URL:  https://<project>-default-rtdb.firebaseio.com
+    # Optional (Kept for future scale-out, unused by the RTDB-only backend):
     #   FIREBASE_STORAGE_BUCKET: <project>.firebasestorage.app
     FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT: str = ""
     FIREBASE_DATABASE_URL: str = ""
