@@ -1,0 +1,6 @@
+{
+  "name": "LegalLens AI",
+  "description": "AI-powered legal document intelligence platform helping users understand legal documents in simple language before signing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
