@@ -3,6 +3,7 @@ build/
 dist/
 public/
 coverage/
+.vite/
 .DS_Store
 *.log
 .env*
