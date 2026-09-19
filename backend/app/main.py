@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.config import settings, is_cloud_mode
 from app.api.routes.health import router as health_router
+from app.api.routes.debug import router as debug_router
 from app.api.routes.documents import router as documents_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.general_chat import router as general_chat_router
@@ -107,6 +108,7 @@ app.add_middleware(
 
 # Mount Routers under /api prefix
 app.include_router(health_router, prefix="/api")
+app.include_router(debug_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(general_chat_router, prefix="/api")
