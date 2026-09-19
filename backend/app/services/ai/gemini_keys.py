@@ -27,7 +27,7 @@ Behaviour:
 
 import threading
 import time
-from typing import Iterator, List, Optional
+from collections.abc import Iterator
 
 from app.config import get_gemini_keys
 from app.core.logging import logger
@@ -86,7 +86,7 @@ class GeminiKeyManager:
         # key -> monotonic timestamp until which the key is skipped
         self._cooldown_until: dict = {}
 
-    def _configured_keys(self) -> List[str]:
+    def _configured_keys(self) -> list[str]:
         try:
             return get_gemini_keys()
         except Exception as e:
@@ -99,7 +99,7 @@ class GeminiKeyManager:
         for k in expired:
             del self._cooldown_until[k]
 
-    def available_keys(self) -> List[str]:
+    def available_keys(self) -> list[str]:
         """Healthy keys in round-robin order.
 
         Keys on quota cooldown are skipped while any healthy key exists.
@@ -137,9 +137,7 @@ class GeminiKeyManager:
         """Mark a key as exhausted so the next requests prefer other keys."""
         with self._lock:
             self._position += 1
-            self._cooldown_until[api_key] = (
-                time.monotonic() + _QUOTA_COOLDOWN_SECONDS
-            )
+            self._cooldown_until[api_key] = time.monotonic() + _QUOTA_COOLDOWN_SECONDS
         logger.warning(
             f"Gemini API key ending '...{api_key[-6:]}' hit a quota/rate limit; "
             "failing over to the next configured key."

@@ -1,4 +1,5 @@
-from app.config import is_cloud_mode, settings as backend_settings
+from app.config import is_cloud_mode
+from app.config import settings as backend_settings
 from app.utils.security import _dev_fallback_allowed
 
 

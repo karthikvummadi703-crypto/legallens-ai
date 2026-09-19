@@ -1,17 +1,17 @@
 import asyncio
 import json
 import re
-import time
 import uuid
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from app.config import settings
 from app.core.logging import logger
 from app.services.ai.prompts import (
-    SYSTEM_GENERAL_CHAT_PROMPT,
+    CROSS_DOC_CHAT_USER_PROMPT_TEMPLATE,
     GENERAL_CHAT_USER_PROMPT_TEMPLATE,
     SYSTEM_CROSS_DOC_CHAT_PROMPT,
-    CROSS_DOC_CHAT_USER_PROMPT_TEMPLATE,
+    SYSTEM_GENERAL_CHAT_PROMPT,
 )
 
 
@@ -26,8 +26,8 @@ class CrossDocSource(BaseModel):
 class GeneralChatResponse(BaseModel):
     conversation_id: str
     answer: str
-    followup_questions: List[str] = Field(default_factory=list)
-    sources: List[CrossDocSource] = Field(default_factory=list)
+    followup_questions: list[str] = Field(default_factory=list)
+    sources: list[CrossDocSource] = Field(default_factory=list)
     confidence: str = Field(default="high")
 
 
@@ -44,14 +44,25 @@ class GeneralChatService:
     CROSS_DOC_TOP_K = 8
 
     @classmethod
-    async def ask_question(cls, question: str, user_id: str, conversation_id: Optional[str] = None, *, save: bool = True, skip_retrieval: bool = False) -> GeneralChatResponse:
+    async def ask_question(
+        cls,
+        question: str,
+        user_id: str,
+        conversation_id: str | None = None,
+        *,
+        save: bool = True,
+        skip_retrieval: bool = False,
+    ) -> GeneralChatResponse:
         if not conversation_id:
             conversation_id = f"conv-{uuid.uuid4().hex[:8]}"
 
-        logger.info(f"General Chat: user='{user_id}' conv='{conversation_id}' q='{question[:80]}' skip_retrieval={skip_retrieval}")
+        logger.info(
+            f"General Chat: user='{user_id}' conv='{conversation_id}' q='{question[:80]}' skip_retrieval={skip_retrieval}"
+        )
 
         # Shared conversation store (document_id=None => library-wide chat).
         from app.services.ai.rag_service import RAGService
+
         history = RAGService.get_conversation_history(user_id, None, conversation_id)
         history_text = cls._format_history(history)
 
@@ -64,7 +75,8 @@ class GeneralChatService:
                 # only ground when passage is meaningfully relevant (overlap heuristic)
                 if cls._should_ground(question, passages):
                     grounded = await cls._answer_from_user_documents(
-                        question, passages, conversation_id, history_text)
+                        question, passages, conversation_id, history_text
+                    )
                     if grounded:
                         if save:
                             cls._save_pair(user_id, conversation_id, question, grounded)
@@ -76,6 +88,7 @@ class GeneralChatService:
 
         api_key = None
         from app.services.ai.gemini_keys import gemini_key_manager
+
         if gemini_key_manager.has_keys():
             for api_key in gemini_key_manager.iter_keys():
                 try:
@@ -95,14 +108,16 @@ class GeneralChatService:
                         client.models.generate_content,
                         model=settings.GEMINI_MODEL,
                         contents=prompt,
-                        config=config
+                        config=config,
                     )
 
                     if response and response.text:
                         parsed = cls._parse_json(response.text, conversation_id)
                         if parsed:
                             gemini_key_manager.report_success(api_key)
-                            logger.info(f"General Chat: Gemini answer generated for '{conversation_id}'.")
+                            logger.info(
+                                f"General Chat: Gemini answer generated for '{conversation_id}'."
+                            )
                             if save:
                                 cls._save_pair(user_id, conversation_id, question, parsed)
                             return parsed
@@ -111,7 +126,9 @@ class GeneralChatService:
                     if gemini_key_manager.is_quota_error(e):
                         gemini_key_manager.report_quota_failure(api_key)
                         continue  # quota exhausted -> fail over to next key
-                    logger.error(f"Gemini general chat SDK error ({e}). Using fallback answer engine.")
+                    logger.error(
+                        f"Gemini general chat SDK error ({e}). Using fallback answer engine."
+                    )
                     break
 
         fallback = cls._generate_fallback_answer(question, conversation_id)
@@ -120,7 +137,7 @@ class GeneralChatService:
         return fallback
 
     @staticmethod
-    def _format_history(messages: List[dict]) -> str:
+    def _format_history(messages: list[dict]) -> str:
         if not messages:
             return "No previous conversation."
         lines = []
@@ -130,11 +147,18 @@ class GeneralChatService:
         return "\n".join(lines)
 
     @classmethod
-    def _save_pair(cls, user_id: str, conversation_id: str, question: str, resp: "GeneralChatResponse"):
+    def _save_pair(
+        cls, user_id: str, conversation_id: str, question: str, resp: "GeneralChatResponse"
+    ):
         try:
             from app.services.ai.rag_service import RAGService
+
             RAGService._save_message_pair(
-                user_id, None, conversation_id, question, resp.answer,
+                user_id,
+                None,
+                conversation_id,
+                question,
+                resp.answer,
                 [s.model_dump() for s in resp.sources],
                 referenced=[s.document_id for s in resp.sources if s.document_id],
             )
@@ -142,7 +166,7 @@ class GeneralChatService:
             logger.warning(f"General chat history save failed ({e}).")
 
     @classmethod
-    def _retrieve_user_passages(cls, question: str, user_id: str) -> List[dict]:
+    def _retrieve_user_passages(cls, question: str, user_id: str) -> list[dict]:
         """Searches all vectors owned by the user (no document restriction)."""
         try:
             from app.services.ai.embedding_service import EmbeddingService
@@ -166,7 +190,7 @@ class GeneralChatService:
             return []
 
     @classmethod
-    def _context_text(cls, passages: List[dict]) -> str:
+    def _context_text(cls, passages: list[dict]) -> str:
         blocks = []
         for c in passages:
             doc_name = c.get("document_name") or c.get("document_id") or "Uploaded document"
@@ -177,31 +201,37 @@ class GeneralChatService:
         return "\n\n".join(blocks)
 
     @classmethod
-    def _passage_sources(cls, passages: List[dict], limit: int = 4) -> List[CrossDocSource]:
-        sources: List[CrossDocSource] = []
+    def _passage_sources(cls, passages: list[dict], limit: int = 4) -> list[CrossDocSource]:
+        sources: list[CrossDocSource] = []
         seen = set()
         for c in passages:
             key = (c.get("document_id"), c.get("page_number"))
             if key in seen:
                 continue
             seen.add(key)
-            sources.append(CrossDocSource(
-                document_id=c.get("document_id") or "",
-                document_name=c.get("document_name") or "",
-                page=c.get("page_number", 1),
-                section=c.get("section", "General"),
-                snippet=(c.get("text") or "")[:160],
-            ))
+            sources.append(
+                CrossDocSource(
+                    document_id=c.get("document_id") or "",
+                    document_name=c.get("document_name") or "",
+                    page=c.get("page_number", 1),
+                    section=c.get("section", "General"),
+                    snippet=(c.get("text") or "")[:160],
+                )
+            )
             if len(sources) >= limit:
                 break
         return sources
 
     @classmethod
     async def _answer_from_user_documents(
-        cls, question: str, passages: List[dict], conversation_id: str,
-        history_text: str = "No previous conversation."
-    ) -> Optional[GeneralChatResponse]:
+        cls,
+        question: str,
+        passages: list[dict],
+        conversation_id: str,
+        history_text: str = "No previous conversation.",
+    ) -> GeneralChatResponse | None:
         from app.services.ai.gemini_keys import gemini_key_manager
+
         if not gemini_key_manager.has_keys():
             return None
         for api_key in gemini_key_manager.iter_keys():
@@ -224,7 +254,7 @@ class GeneralChatService:
                     client.models.generate_content,
                     model=settings.GEMINI_MODEL,
                     contents=prompt,
-                    config=config
+                    config=config,
                 )
                 if response and response.text:
                     data = json.loads(response.text)
@@ -232,13 +262,17 @@ class GeneralChatService:
                     sources = []
                     for s in raw_sources:
                         if isinstance(s, dict):
-                            sources.append(CrossDocSource(
-                                document_id=str(s.get("document_id", "")),
-                                document_name=str(s.get("document_name", "")),
-                                page=int(s.get("page", 1)) if str(s.get("page", 1)).isdigit() else 1,
-                                section=str(s.get("section", "General")),
-                                snippet=str(s.get("snippet", "")),
-                            ))
+                            sources.append(
+                                CrossDocSource(
+                                    document_id=str(s.get("document_id", "")),
+                                    document_name=str(s.get("document_name", "")),
+                                    page=int(s.get("page", 1))
+                                    if str(s.get("page", 1)).isdigit()
+                                    else 1,
+                                    section=str(s.get("section", "General")),
+                                    snippet=str(s.get("snippet", "")),
+                                )
+                            )
                     if not sources:
                         sources = cls._passage_sources(passages)
                     gemini_key_manager.report_success(api_key)
@@ -260,7 +294,7 @@ class GeneralChatService:
 
     @classmethod
     def _fallback_cross_doc_answer(
-        cls, question: str, passages: List[dict], conversation_id: str
+        cls, question: str, passages: list[dict], conversation_id: str
     ) -> GeneralChatResponse:
         """Honest offline answer: direct quotes from the user's own documents."""
         top = passages[0]
@@ -286,24 +320,24 @@ class GeneralChatService:
         )
 
     @classmethod
-    def _parse_json(cls, text: str, conversation_id: str) -> Optional[GeneralChatResponse]:
+    def _parse_json(cls, text: str, conversation_id: str) -> GeneralChatResponse | None:
         try:
             data = json.loads(text)
             return GeneralChatResponse(
                 conversation_id=conversation_id,
                 answer=data.get("answer", ""),
-                followup_questions=data.get("followup_questions", [])
+                followup_questions=data.get("followup_questions", []),
             )
         except Exception as e:
             logger.warning(f"General chat JSON parse error ({e}). Using regex recovery...")
-            match = re.search(r'\{.*\}', text, re.DOTALL)
+            match = re.search(r"\{.*\}", text, re.DOTALL)
             if match:
                 try:
                     data = json.loads(match.group(0))
                     return GeneralChatResponse(
                         conversation_id=conversation_id,
                         answer=data.get("answer", ""),
-                        followup_questions=data.get("followup_questions", [])
+                        followup_questions=data.get("followup_questions", []),
                     )
                 except Exception:
                     pass
@@ -320,7 +354,10 @@ class GeneralChatService:
             "them for low-wage roles, and some states require reasonable terms to be enforceable at all.\n\n"
             "To know how this applies to your specific contract, upload the agreement and I can point to the exact "
             "clause.",
-            ["How long can a non-compete reasonably last?", "What makes a non-compete unenforceable?"],
+            [
+                "How long can a non-compete reasonably last?",
+                "What makes a non-compete unenforceable?",
+            ],
         ),
         "confidentiality": (
             "Confidentiality (NDA) clauses bind a party to keep certain information secret. They typically cover "
@@ -370,14 +407,20 @@ class GeneralChatService:
             "the deadline. A common trap is missing that deadline and being locked in for another year. Always check "
             "the renewal term length and the advance notice required to opt out.\n\n"
             "Upload the agreement and I can flag the exact renewal and opt-out deadlines for you.",
-            ["What happens if I miss the renewal opt-out deadline?", "Can I negotiate auto-renewal away?"],
+            [
+                "What happens if I miss the renewal opt-out deadline?",
+                "Can I negotiate auto-renewal away?",
+            ],
         ),
         "renew": (
             "Automatic renewal means a contract extends itself for another term unless you give written notice before "
             "the deadline. A common trap is missing that deadline and being locked in for another year. Always check "
             "the renewal term length and the advance notice required to opt out.\n\n"
             "Upload the agreement and I can flag the exact renewal and opt-out deadlines for you.",
-            ["What happens if I miss the renewal opt-out deadline?", "Can I negotiate auto-renewal away?"],
+            [
+                "What happens if I miss the renewal opt-out deadline?",
+                "Can I negotiate auto-renewal away?",
+            ],
         ),
         "late fee": (
             "Late payment fees are penalties charged when an invoice is not paid by its due date. They are usually a "
@@ -390,14 +433,20 @@ class GeneralChatService:
             "Interest clauses set the rate charged on late or outstanding balances. Rates can be simple or compound, "
             "and some are limited by law (usury limits) depending on the jurisdiction and type of lender.\n\n"
             "Upload the document to see the specific interest terms it contains.",
-            ["What is the difference between simple and compound interest?", "What is a usury limit?"],
+            [
+                "What is the difference between simple and compound interest?",
+                "What is a usury limit?",
+            ],
         ),
         "force majeure": (
             "A force majeure clause excuses a party from performing when an extraordinary event occurs — natural "
             "disasters, war, pandemics, strikes. Scope, notice obligations, and what counts as an 'act of God' vary "
             "greatly, so read which events are listed and what each party must do.\n\n"
             "Upload your contract and I'll examine its force majeure provision.",
-            ["Does force majeure cover pandemics?", "What should I check in a force majeure clause?"],
+            [
+                "Does force majeure cover pandemics?",
+                "What should I check in a force majeure clause?",
+            ],
         ),
         "liability cap": (
             "A liability cap limits the maximum damages one party can be required to pay (e.g. to fees paid under the "
@@ -411,7 +460,10 @@ class GeneralChatService:
             "disclaims most warranties, while express warranties promise specific features. Check what is warranted, "
             "for how long, and what your remedies are if a warranty is breached.\n\n"
             "Upload the contract so I can identify its warranty and disclaimer language.",
-            ["What is the difference between express and implied warranties?", "What happens if a warranty is breached?"],
+            [
+                "What is the difference between express and implied warranties?",
+                "What happens if a warranty is breached?",
+            ],
         ),
         "jurisdiction": (
             "A governing law / jurisdiction clause states which country or state's law applies and which courts will "
@@ -432,7 +484,10 @@ class GeneralChatService:
             "the deadline. A common trap is missing that deadline and being locked in for another year. Always check "
             "the renewal term length and the advance notice required to opt out.\n\n"
             "Upload the agreement and I can flag the exact renewal and opt-out deadlines for you.",
-            ["What happens if I miss the renewal opt-out deadline?", "Can I negotiate auto-renewal away?"],
+            [
+                "What happens if I miss the renewal opt-out deadline?",
+                "Can I negotiate auto-renewal away?",
+            ],
         ),
         "severance": (
             "Severance pay is compensation provided when employment ends, often in exchange for a release of claims. "
@@ -453,13 +508,19 @@ class GeneralChatService:
             "with a 1-year cliff). After a cliff, grants typically vest monthly. Leaving before cliff usually forfeits "
             "everything; leaving after may allow exercising vested options only.\n\n"
             "Upload your agreement to see its exact vesting schedule.",
-            ["What happens if I leave before my cliff?", "What is an exercise window after termination?"],
+            [
+                "What happens if I leave before my cliff?",
+                "What is an exercise window after termination?",
+            ],
         ),
         "non-solicit": (
             "Non-solicitation clauses restrict you from recruiting your employer's employees or taking their clients "
             "after you leave. Scope (which clients, for how long, in what region) matters a lot for enforceability.\n\n"
             "Upload your agreement and I can examine its non-solicitation restrictions.",
-            ["What is the difference between non-compete and non-solicit?", "Are these clauses enforceable?"],
+            [
+                "What is the difference between non-compete and non-solicit?",
+                "Are these clauses enforceable?",
+            ],
         ),
         "garden leave": (
             "Garden leave means you remain employed and paid but do not work during the notice period — it is often "
@@ -472,14 +533,20 @@ class GeneralChatService:
             "'assignment of inventions' clause granting the employer rights to your creations. Check what is covered, "
             "whether pre-existing IP is carved out, and how disputes are handled.\n\n"
             "Upload your contract and I'll analyze its IP provisions.",
-            ["Do employers really own everything I create?", "What is a 'pre-existing IP' carve-out?"],
+            [
+                "Do employers really own everything I create?",
+                "What is a 'pre-existing IP' carve-out?",
+            ],
         ),
         "assignment": (
             "An assignment clause controls whether a party can transfer the contract to someone else (e.g. another "
             "company). If assignment is restricted, an acquisition or restructuring may need consent. This is common "
             "and often negotiated.\n\n"
             "Upload the contract and I'll show you what its assignment clause says.",
-            ["What happens if my company is acquired?", "When can a contract be assigned without consent?"],
+            [
+                "What happens if my company is acquired?",
+                "When can a contract be assigned without consent?",
+            ],
         ),
         "covenant": (
             "Restrictive covenants (non-compete, non-solicit, confidentiality) limit what you can do after leaving. "
@@ -500,42 +567,60 @@ class GeneralChatService:
             "and carve-outs, restrictive covenants, termination rights, and dispute resolution. If a fee or deadline "
             "isn't clear, ask for written clarification — silence in a contract rarely protects you.\n\n"
             "Upload the document and I can run a full risk analysis on it.",
-            ["What are the biggest risks in this document?", "What should I ask a lawyer before signing?"],
+            [
+                "What are the biggest risks in this document?",
+                "What should I ask a lawyer before signing?",
+            ],
         ),
         "negotiat": (
             "Common negotiation levers include: removing auto-renewal or shortening its term, adding a liability cap, "
             "narrowing restrictive covenants, extending payment terms, adding exit/cure periods, and specifying "
             "renewal notice. Most providers expect reasonable edits — ask in writing before signing.\n\n"
             "Upload the contract and I can flag which terms are typically negotiable.",
-            ["What is usually negotiable in a contract?", "How do I ask for better terms professionally?"],
+            [
+                "What is usually negotiable in a contract?",
+                "How do I ask for better terms professionally?",
+            ],
         ),
         "rent": (
             "When renting, key terms include the monthly rent and escalation, security deposit and return timeline, "
             "maintenance responsibilities, subletting rights, notice periods, and termination/early-exit costs. Some "
             "lease terms (like excessive late fees) may be limited by law.\n\n"
             "Upload your lease and I can highlight the terms that matter most.",
-            ["What should I check before signing a lease?", "When can a landlord withhold my deposit?"],
+            [
+                "What should I check before signing a lease?",
+                "When can a landlord withhold my deposit?",
+            ],
         ),
         "deposit": (
             "Security deposits are funds held against damage or unpaid rent. Most states limit how much can be charged "
             "and require the return (with an itemized deduction list) within a set time after move-out. Keep move-in "
             "photos and a signed condition checklist.\n\n"
             "Upload your lease to review its deposit terms.",
-            ["How long can a landlord keep my deposit?", "Can a landlord charge a non-refundable deposit?"],
+            [
+                "How long can a landlord keep my deposit?",
+                "Can a landlord charge a non-refundable deposit?",
+            ],
         ),
         "lease": (
             "When renting, key terms include the monthly rent and escalation, security deposit and return timeline, "
             "maintenance responsibilities, subletting rights, notice periods, and termination/early-exit costs. Some "
             "lease terms (like excessive late fees) may be limited by law.\n\n"
             "Upload your lease and I can highlight the terms that matter most.",
-            ["What should I check before signing a lease?", "When can a landlord withhold my deposit?"],
+            [
+                "What should I check before signing a lease?",
+                "When can a landlord withhold my deposit?",
+            ],
         ),
         "eviction": (
             "Eviction laws vary by state but generally a landlord needs proper notice and, for nonpayment, a formal "
             "process before removing a tenant. Tenants often have defenses (failure to maintain the unit, illegal "
             "retaliation, payment tendered). Consult your local housing agency or a lawyer for your specific case.\n\n"
             "If you have a lease or notice, upload it and I can help review it.",
-            ["What are my rights if the landlord files for eviction?", "How do I dispute an eviction notice?"],
+            [
+                "What are my rights if the landlord files for eviction?",
+                "How do I dispute an eviction notice?",
+            ],
         ),
         "tenant": (
             "Tenant rights and landlord duties vary by state, but landlords generally must maintain the unit in a safe, "
@@ -569,7 +654,10 @@ class GeneralChatService:
             "may limit unfair contract terms such as hidden fees or excessive penalties. The specific protections vary "
             "by jurisdiction and by type of purchase.\n\n"
             "Upload the receipt, policy, or terms and I'll review them.",
-            ["What are my rights if a product is defective?", "Can a business change terms after purchase?"],
+            [
+                "What are my rights if a product is defective?",
+                "Can a business change terms after purchase?",
+            ],
         ),
         "invoice": (
             "When reviewing an invoice, check the amount, due date, late-fee and interest terms, and whether the "
@@ -595,7 +683,10 @@ class GeneralChatService:
             "Damages clauses describe what one party pays if the other suffers loss. Types include direct, consequential, "
             "and liquidated damages. Many contracts exclude consequential damages and set a cap on all liability.\n\n"
             "Upload your document and I'll explain the damages provisions it contains.",
-            ["What is the difference between direct and consequential damages?", "What are liquidated damages?"],
+            [
+                "What is the difference between direct and consequential damages?",
+                "What are liquidated damages?",
+            ],
         ),
         "liquidated": (
             "Liquidated damages are a pre-agreed amount payable for a specific breach (e.g. a fixed daily penalty for "
@@ -621,7 +712,10 @@ class GeneralChatService:
             "termination notice, restrictive covenants, IP assignment, and dispute resolution. Some change-of-"
             "employment rights (minimum wage, leave) cannot be contracted away.\n\n"
             "Upload your offer or employment agreement and I'll analyze it.",
-            ["What should I check in an employment contract?", "What are my rights as an employee?"],
+            [
+                "What should I check in an employment contract?",
+                "What are my rights as an employee?",
+            ],
         ),
         "offer": (
             "Offer letters and employment contracts set out compensation, role, start date, at-will or fixed term, "
@@ -648,13 +742,19 @@ class GeneralChatService:
             "periods, penalties, termination rights, and damages. Material vs minor breach changes whether the other "
             "party can walk away.\n\n"
             "Upload the contract and I'll explain what happens on a breach.",
-            ["What is the difference between a material and minor breach?", "What can I do if the other side breaches?"],
+            [
+                "What is the difference between a material and minor breach?",
+                "What can I do if the other side breaches?",
+            ],
         ),
         "cure": (
             "A cure period is a window (e.g. 10–30 days) to fix a breach before the other party can terminate or claim "
             "damages. Check both how long it lasts and who must give notice of the breach to start the clock.\n\n"
             "Upload your contract and I'll find its cure-period terms.",
-            ["When does the cure period start?", "What happens if I can't cure the breach in time?"],
+            [
+                "When does the cure period start?",
+                "What happens if I can't cure the breach in time?",
+            ],
         ),
         "dispute": (
             "Dispute-resolution clauses decide how disagreements are handled: negotiation, mediation, arbitration, or "
@@ -667,7 +767,10 @@ class GeneralChatService:
             "some states guarantee tenant rights to sublet with reasonable conditions. Check consent requirements and "
             "any added fees.\n\n"
             "Upload your lease to see its subletting terms.",
-            ["Can my landlord refuse a sublease?", "What is the difference between sublet and assign?"],
+            [
+                "Can my landlord refuse a sublease?",
+                "What is the difference between sublet and assign?",
+            ],
         ),
         "milestone": (
             "Milestone clauses tie payments or deliveries to defined progress points. Check what evidence is needed to "
@@ -756,7 +859,10 @@ class GeneralChatService:
             "An 'entire agreement' clause states the written contract is the full agreement, overriding earlier "
             "discussions. This means promised-but-unwritten terms may not be enforceable.\n\n"
             "Upload your contract and I'll point out its entire-agreement clause.",
-            ["Does the entire-agreement clause matter?", "What if something important was only promised verbally?"],
+            [
+                "Does the entire-agreement clause matter?",
+                "What if something important was only promised verbally?",
+            ],
         ),
         "counterpart": (
             "A counterpart clause lets the parties sign separate copies of the same agreement, each treated as one "
@@ -768,7 +874,10 @@ class GeneralChatService:
             "A severability clause says that if one part of the contract is found invalid, the rest still stands. It "
             "protects the agreement's core from being destroyed by one unenforceable clause.\n\n"
             "Upload your contract and I'll check its severability provision.",
-            ["What does severability mean in practice?", "What happens without a severability clause?"],
+            [
+                "What does severability mean in practice?",
+                "What happens without a severability clause?",
+            ],
         ),
         "survival": (
             "A survival clause says certain sections (confidentiality, indemnity, IP) remain in force after the "
@@ -816,7 +925,7 @@ class GeneralChatService:
             "Upload your agreement and I'll explain who gains rights under it.",
             ["What is a third-party beneficiary?", "Can a non-party enforce a contract?"],
         ),
-        }
+    }
 
     @classmethod
     def _match_topic(cls, q_lower: str):
@@ -836,12 +945,35 @@ class GeneralChatService:
     def _generate_fallback_answer(cls, question: str, conversation_id: str) -> GeneralChatResponse:
         q_lower = question.lower().strip()
 
-        if not q_lower or q_lower in (
-            "hi", "hii", "hiii", "hey", "hello", "hai", "hola", "yo", "sup",
-            "ok", "okay", "cool", "great", "nice",
-        ) or any(p in q_lower for p in (
-            "good morning", "good afternoon", "good evening", "how are you",
-        )):
+        if (
+            not q_lower
+            or q_lower
+            in (
+                "hi",
+                "hii",
+                "hiii",
+                "hey",
+                "hello",
+                "hai",
+                "hola",
+                "yo",
+                "sup",
+                "ok",
+                "okay",
+                "cool",
+                "great",
+                "nice",
+            )
+            or any(
+                p in q_lower
+                for p in (
+                    "good morning",
+                    "good afternoon",
+                    "good evening",
+                    "how are you",
+                )
+            )
+        ):
             return GeneralChatResponse(
                 conversation_id=conversation_id,
                 answer=(
@@ -849,7 +981,7 @@ class GeneralChatService:
                     "contracts in plain language, flag risks and deadlines, compare documents, "
                     "and answer general legal questions.\n\n"
                     "Upload a document to get started, or just ask me anything — "
-                    "for example, \"What is a non-compete clause?\".\n\n"
+                    'for example, "What is a non-compete clause?".\n\n'
                     "*LegalLens provides informational assistance and does not replace professional legal advice.*"
                 ),
                 followup_questions=[
@@ -886,7 +1018,7 @@ class GeneralChatService:
             )
 
         answer = (
-            f"Here is some general guidance on your question about \"{question}\":\n\n"
+            f'Here is some general guidance on your question about "{question}":\n\n'
             "Most everyday legal questions depend on the specific contract, the governing law, and the facts of your "
             "situation. As a general rule, always read the fine print for notice deadlines, payment terms, liability "
             "limits, and termination rights before signing.\n\n"
@@ -897,22 +1029,30 @@ class GeneralChatService:
         followups = [
             "What should I check before signing a contract?",
             "What are common risky clauses?",
-            "How do I negotiate better contract terms?"
+            "How do I negotiate better contract terms?",
         ]
 
         # Set the followup suggestions off the matched topic (when present).
         return GeneralChatResponse(
-            conversation_id=conversation_id,
-            answer=answer,
-            followup_questions=followups
+            conversation_id=conversation_id, answer=answer, followup_questions=followups
         )
 
     @classmethod
-    def _should_ground(cls, question: str, passages: List[dict]) -> bool:
+    def _should_ground(cls, question: str, passages: list[dict]) -> bool:
         """Only ground in docs when the question meaningfully overlaps retrieved text."""
         q = question.lower()
         # Explicit document reference → always ground
-        if any(kw in q for kw in ["my document", "my contract", "this document", "this contract", "uploaded", "my file"]):
+        if any(
+            kw in q
+            for kw in [
+                "my document",
+                "my contract",
+                "this document",
+                "this contract",
+                "uploaded",
+                "my file",
+            ]
+        ):
             return True
         # If top passage shares significant lexical overlap with question, ground
         if passages and passages[0].get("text"):
@@ -925,6 +1065,10 @@ class GeneralChatService:
         return False
 
     @classmethod
-    async def ask_pure_general(cls, question: str, user_id: str, conversation_id: Optional[str] = None, *, save: bool = True) -> GeneralChatResponse:
+    async def ask_pure_general(
+        cls, question: str, user_id: str, conversation_id: str | None = None, *, save: bool = True
+    ) -> GeneralChatResponse:
         """Pure Mode 1: no Qdrant retrieval, just Gemini + fallback FAQ."""
-        return await cls.ask_question(question, user_id, conversation_id, save=save, skip_retrieval=True)
+        return await cls.ask_question(
+            question, user_id, conversation_id, save=save, skip_retrieval=True
+        )

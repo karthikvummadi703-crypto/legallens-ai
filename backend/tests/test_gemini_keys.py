@@ -2,7 +2,6 @@
 
 import unittest
 
-from app.services.ai import gemini_keys as gk_module
 from app.services.ai.gemini_keys import GeminiKeyManager
 
 
@@ -22,9 +21,7 @@ class TestQuotaDetection(unittest.TestCase):
             "You have exhausted your limit",
             "billing error: permission denied",
         ]:
-            self.assertTrue(
-                GeminiKeyManager.is_quota_error(Exception(msg)), f"missed: {msg}"
-            )
+            self.assertTrue(GeminiKeyManager.is_quota_error(Exception(msg)), f"missed: {msg}")
 
     def test_non_quota_errors_not_detected(self):
         for msg in ["connection reset by peer", "invalid JSON response", "timeout"]:
@@ -90,9 +87,7 @@ class TestKeyLoading(unittest.TestCase):
             config_module.settings.GEMINI_API_KEY_2 = '"key-B"'
             config_module.settings.GEMINI_API_KEY_3 = "your_gemini_api_key_here"
             config_module.settings.GEMINI_API_KEYS = "key-C, key-A"
-            self.assertEqual(
-                config_module.get_gemini_keys(), ["key-A", "key-B", "key-C"]
-            )
+            self.assertEqual(config_module.get_gemini_keys(), ["key-A", "key-B", "key-C"])
             self.assertTrue(config_module.is_gemini_configured())
         finally:
             (

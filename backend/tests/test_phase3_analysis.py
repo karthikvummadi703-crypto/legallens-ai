@@ -1,15 +1,13 @@
-import unittest
 import asyncio
 import os
-import json
-from app.models.document import ExtractedDocument, PageContent, DocumentSection, DocumentClause
-from app.services.ai.schemas import FullDocumentAnalysis, ExecutiveSummary, AttentionScoreDetails
+import unittest
+
 from app.services.ai.gemini_service import GeminiAnalysisService
+from app.services.ai.schemas import FullDocumentAnalysis
 from app.services.extraction_service import DocumentExtractionService
-from app.services.document_service import DocumentManager
+
 
 class TestPhase3Analysis(unittest.TestCase):
-
     def setUp(self):
         self.test_user_id = "test-usr-123"
         self.sample_txt_path = os.path.join(os.path.dirname(__file__), "sample_contract.txt")
@@ -37,9 +35,7 @@ class TestPhase3Analysis(unittest.TestCase):
 
     def test_01_text_extraction(self):
         extracted = DocumentExtractionService.extract_document(
-            self.sample_txt_path, 
-            "doc-test-01", 
-            "sample_contract.txt"
+            self.sample_txt_path, "doc-test-01", "sample_contract.txt"
         )
         self.assertEqual(extracted.document_id, "doc-test-01")
         self.assertGreater(len(extracted.pages), 0)
@@ -48,12 +44,10 @@ class TestPhase3Analysis(unittest.TestCase):
     def test_02_pydantic_analysis_validation(self):
         """Verify the offline fallback produces a valid schema without fabricating legal content."""
         extracted = DocumentExtractionService.extract_document(
-            self.sample_txt_path, 
-            "doc-test-02", 
-            "sample_contract.txt"
+            self.sample_txt_path, "doc-test-02", "sample_contract.txt"
         )
         analysis = asyncio.run(GeminiAnalysisService.analyze_document(extracted, self.test_user_id))
-        
+
         self.assertIsInstance(analysis, FullDocumentAnalysis)
         self.assertEqual(analysis.document_id, "doc-test-02")
         self.assertEqual(analysis.user_id, self.test_user_id)
@@ -70,14 +64,16 @@ class TestPhase3Analysis(unittest.TestCase):
 
     def test_03_attention_score_calculation(self):
         extracted = DocumentExtractionService.extract_document(
-            self.sample_txt_path, 
-            "doc-test-03", 
-            "sample_contract.txt"
+            self.sample_txt_path, "doc-test-03", "sample_contract.txt"
         )
         analysis = asyncio.run(GeminiAnalysisService.analyze_document(extracted, self.test_user_id))
         self.assertGreaterEqual(analysis.attention_score.score, 0)
         self.assertLessEqual(analysis.attention_score.score, 100)
-        self.assertIn(analysis.attention_score.label, ["Requires Immediate Attention", "Requires Review", "Standard Terms"])
+        self.assertIn(
+            analysis.attention_score.label,
+            ["Requires Immediate Attention", "Requires Review", "Standard Terms"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

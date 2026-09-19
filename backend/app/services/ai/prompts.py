@@ -193,5 +193,3 @@ Answer the user question following the cross-document rules above. First decide 
 - "confidence": "high" | "medium" | "low"
 - "followup_questions": List of 2-3 suggested logical follow-up questions
 """
-
-

@@ -1,17 +1,15 @@
-import unittest
 import asyncio
 import os
-import json
-from app.models.document import ExtractedDocument
-from app.services.extraction_service import DocumentExtractionService
+import unittest
+
 from app.services.ai.chunking_service import LegalChunkingService
 from app.services.ai.embedding_service import EmbeddingService
-from app.services.ai.vector_service import VectorDatabaseService
 from app.services.ai.rag_service import RAGService
-from app.services.document_service import DocumentManager
+from app.services.ai.vector_service import VectorDatabaseService
+from app.services.extraction_service import DocumentExtractionService
+
 
 class TestPhase4RAG(unittest.TestCase):
-
     def setUp(self):
         self.user_a = "usr-userA-123"
         self.user_b = "usr-userB-456"
@@ -49,9 +47,11 @@ class TestPhase4RAG(unittest.TestCase):
                     pass
 
     def test_01_chunking_and_metadata(self):
-        extracted_a = DocumentExtractionService.extract_document(self.doc_a_path, "doc-userA-01", "contract_user_a.txt")
+        extracted_a = DocumentExtractionService.extract_document(
+            self.doc_a_path, "doc-userA-01", "contract_user_a.txt"
+        )
         chunks = LegalChunkingService.create_chunks(extracted_a, self.user_a)
-        
+
         self.assertGreater(len(chunks), 0)
         first_chk = chunks[0]
         self.assertEqual(first_chk["document_id"], "doc-userA-01")
@@ -66,16 +66,22 @@ class TestPhase4RAG(unittest.TestCase):
         self.assertEqual(len(vector), 768)
 
     def test_03_vector_indexing_and_search(self):
-        extracted_a = DocumentExtractionService.extract_document(self.doc_a_path, "doc-userA-02", "contract_user_a.txt")
+        extracted_a = DocumentExtractionService.extract_document(
+            self.doc_a_path, "doc-userA-02", "contract_user_a.txt"
+        )
         chunks = LegalChunkingService.create_chunks(extracted_a, self.user_a)
         embeddings = EmbeddingService.generate_embeddings([c["text"] for c in chunks])
-        
-        upsert_ok = VectorDatabaseService.upsert_document_chunks(self.user_a, "doc-userA-02", chunks, embeddings)
+
+        upsert_ok = VectorDatabaseService.upsert_document_chunks(
+            self.user_a, "doc-userA-02", chunks, embeddings
+        )
         self.assertTrue(upsert_ok)
 
         q_vec = EmbeddingService.generate_embedding("What is the base salary?")
-        results = VectorDatabaseService.search_similar_chunks(self.user_a, "doc-userA-02", q_vec, top_k=3)
-        
+        results = VectorDatabaseService.search_similar_chunks(
+            self.user_a, "doc-userA-02", q_vec, top_k=3
+        )
+
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["user_id"], self.user_a)
         self.assertEqual(results[0]["document_id"], "doc-userA-02")
@@ -86,12 +92,16 @@ class TestPhase4RAG(unittest.TestCase):
         CRITICAL SECURITY TEST:
         User A MUST NOT be able to retrieve or search User B's vector chunks.
         """
-        ext_a = DocumentExtractionService.extract_document(self.doc_a_path, "doc-userA-sec", "contract_user_a.txt")
+        ext_a = DocumentExtractionService.extract_document(
+            self.doc_a_path, "doc-userA-sec", "contract_user_a.txt"
+        )
         chunks_a = LegalChunkingService.create_chunks(ext_a, self.user_a)
         emb_a = EmbeddingService.generate_embeddings([c["text"] for c in chunks_a])
         VectorDatabaseService.upsert_document_chunks(self.user_a, "doc-userA-sec", chunks_a, emb_a)
 
-        ext_b = DocumentExtractionService.extract_document(self.doc_b_path, "doc-userB-sec", "contract_user_b.txt")
+        ext_b = DocumentExtractionService.extract_document(
+            self.doc_b_path, "doc-userB-sec", "contract_user_b.txt"
+        )
         chunks_b = LegalChunkingService.create_chunks(ext_b, self.user_b)
         emb_b = EmbeddingService.generate_embeddings([c["text"] for c in chunks_b])
         VectorDatabaseService.upsert_document_chunks(self.user_b, "doc-userB-sec", chunks_b, emb_b)
@@ -99,31 +109,41 @@ class TestPhase4RAG(unittest.TestCase):
         q_vec = EmbeddingService.generate_embedding("What is the monthly rent?")
 
         # 1. User A searches User A's document -> returns results
-        res_a = VectorDatabaseService.search_similar_chunks(self.user_a, "doc-userA-sec", q_vec, top_k=5)
+        res_a = VectorDatabaseService.search_similar_chunks(
+            self.user_a, "doc-userA-sec", q_vec, top_k=5
+        )
         self.assertGreater(len(res_a), 0)
         for r in res_a:
             self.assertEqual(r["user_id"], self.user_a)
 
         # 2. User A attempts searching User B's document_id -> Returns 0 results (Blocked by ownership filter)
-        res_unauthorized = VectorDatabaseService.search_similar_chunks(self.user_a, "doc-userB-sec", q_vec, top_k=5)
+        res_unauthorized = VectorDatabaseService.search_similar_chunks(
+            self.user_a, "doc-userB-sec", q_vec, top_k=5
+        )
         self.assertEqual(len(res_unauthorized), 0)
 
         # 3. User B attempts searching User A's document_id -> Returns 0 results
-        res_unauthorized_b = VectorDatabaseService.search_similar_chunks(self.user_b, "doc-userA-sec", q_vec, top_k=5)
+        res_unauthorized_b = VectorDatabaseService.search_similar_chunks(
+            self.user_b, "doc-userA-sec", q_vec, top_k=5
+        )
         self.assertEqual(len(res_unauthorized_b), 0)
 
     def test_05_rag_grounded_answer(self):
-        ext_a = DocumentExtractionService.extract_document(self.doc_a_path, "doc-userA-rag", "contract_user_a.txt")
+        ext_a = DocumentExtractionService.extract_document(
+            self.doc_a_path, "doc-userA-rag", "contract_user_a.txt"
+        )
         chunks_a = LegalChunkingService.create_chunks(ext_a, self.user_a)
         emb_a = EmbeddingService.generate_embeddings([c["text"] for c in chunks_a])
         VectorDatabaseService.upsert_document_chunks(self.user_a, "doc-userA-rag", chunks_a, emb_a)
 
-        rag_resp = asyncio.run(RAGService.ask_question(
-            user_id=self.user_a,
-            document_id="doc-userA-rag",
-            document_name="contract_user_a.txt",
-            question="What is the notice period for termination?"
-        ))
+        rag_resp = asyncio.run(
+            RAGService.ask_question(
+                user_id=self.user_a,
+                document_id="doc-userA-rag",
+                document_name="contract_user_a.txt",
+                question="What is the notice period for termination?",
+            )
+        )
 
         self.assertIsNotNone(rag_resp.answer)
         self.assertGreater(len(rag_resp.sources), 0)
@@ -132,26 +152,34 @@ class TestPhase4RAG(unittest.TestCase):
         self.assertGreater(len(rag_resp.sources[0].section), 0)
 
     def test_06_missing_information_handling(self):
-        ext_a = DocumentExtractionService.extract_document(self.doc_a_path, "doc-userA-missing", "contract_user_a.txt")
+        ext_a = DocumentExtractionService.extract_document(
+            self.doc_a_path, "doc-userA-missing", "contract_user_a.txt"
+        )
         chunks_a = LegalChunkingService.create_chunks(ext_a, self.user_a)
         emb_a = EmbeddingService.generate_embeddings([c["text"] for c in chunks_a])
-        VectorDatabaseService.upsert_document_chunks(self.user_a, "doc-userA-missing", chunks_a, emb_a)
+        VectorDatabaseService.upsert_document_chunks(
+            self.user_a, "doc-userA-missing", chunks_a, emb_a
+        )
 
-        rag_resp = asyncio.run(RAGService.ask_question(
-            user_id=self.user_a,
-            document_id="doc-userA-missing",
-            document_name="contract_user_a.txt",
-            question="What is the software warranty policy for third party plugins?"
-        ))
+        rag_resp = asyncio.run(
+            RAGService.ask_question(
+                user_id=self.user_a,
+                document_id="doc-userA-missing",
+                document_name="contract_user_a.txt",
+                question="What is the software warranty policy for third party plugins?",
+            )
+        )
 
         # Check for explicit missing info statement or cautious fallback
         self.assertTrue(
-            "couldn't find enough information" in rag_resp.answer.lower() or
-            "informational" in rag_resp.answer.lower()
+            "couldn't find enough information" in rag_resp.answer.lower()
+            or "informational" in rag_resp.answer.lower()
         )
 
     def test_07_vector_deletion(self):
-        ext_a = DocumentExtractionService.extract_document(self.doc_a_path, "doc-del-01", "contract_user_a.txt")
+        ext_a = DocumentExtractionService.extract_document(
+            self.doc_a_path, "doc-del-01", "contract_user_a.txt"
+        )
         chunks_a = LegalChunkingService.create_chunks(ext_a, self.user_a)
         emb_a = EmbeddingService.generate_embeddings([c["text"] for c in chunks_a])
         VectorDatabaseService.upsert_document_chunks(self.user_a, "doc-del-01", chunks_a, emb_a)
@@ -164,6 +192,7 @@ class TestPhase4RAG(unittest.TestCase):
         q_vec = EmbeddingService.generate_embedding("salary")
         res = VectorDatabaseService.search_similar_chunks(self.user_a, "doc-del-01", q_vec, top_k=5)
         self.assertEqual(len(res), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

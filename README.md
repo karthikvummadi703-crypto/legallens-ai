@@ -1,6 +1,8 @@
 # legallens-ai
 
-Submission project for the Prompt Wars exclusive challenge.
+[![Backend CI](https://github.com/karthikvummadi703-crypto/legallens-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/karthikvummadi703-crypto/legallens-ai/actions/workflows/ci.yml)
+
+Submission project for the Prompt Wars exclusive challenge — **AI for Legal Assistance & Access**.
 
 **LegalLens AI** is a full-stack legal document intelligence assistant. Upload a
 contract, NDA, lease or employment agreement and get clause-level analysis,
@@ -11,6 +13,22 @@ instant grounded Q&A that cites exact pages and sections.
 - Frontend: React + Vite + TypeScript · Firebase Authentication (Google sign-in)
 - Deployment: Vercel serverless (Python API + static SPA, same-origin or CORS)
 - Cloud persistence: Firebase Realtime Database — works on the free **Spark** plan, no billing account needed
+
+## Alignment with “AI for Legal Assistance & Access”
+
+| Challenge goal | How LegalLens AI delivers |
+|---|---|
+| **Legal assistance** | Turns dense contracts into plain-language summaries, clause breakdowns, risks, obligations, payment terms, key dates and a "Before You Sign" checklist — no lawyer required. |
+| **Access** | Free and fully browser-based, runs on a free hosting/database tier, accessible with one Google sign-in, and stays responsive at API quota limits via deterministic offline analysis. |
+| **Trust / precision** | Every AI claim is anchored to page-level citations from the user's own document, and answers never fabricate legal claims — grounded fallbacks quote the source instead. |
+| **Privacy** | Per-user document isolation; documents, analyses, chats and vectors are scoped to the signed-in user. |
+
+### Gen AI services used (and where)
+- **Google Gemini (generative)** — the full analysis pipeline (executive summary, clauses, risks, obligations, payments, key dates, termination/renewal) and the interactive "Before You Sign" checklist.
+- **Google Gemini (generative)** — multi-turn RAG chat grounded in the user's documents with page/section citations, plus general legal Q&A.
+- **Google Gemini text embeddings** (`gemini-embedding-001`) — chunk embeddings for semantic vector retrieval (with a deterministic semantic fallback that keeps retrieval working offline/at quota).
+- **API-key rotation** — up to 3 Gemini keys with automatic quota failover, and rule-based grounded fallbacks when all keys are exhausted.
+
 
 ## Features
 
@@ -101,8 +119,37 @@ fixed dev user so the app runs out of the box.
   Entirely Firebase RTDB-backed, dev fallback is disabled, and the upload
   pipeline extracts the document from a `/tmp` copy (Vercel FS is read-only).
 
+## Testing & quality
+
+Run the backend test suite (79 tests, fully offline — no API keys or network needed):
+
+```bash
+cd backend
+pip install -r ../requirements.txt pytest ruff
+python -m pytest -q
+```
+
+Lint and format (config lives in `pyproject.toml`):
+
+```bash
+cd backend
+ruff check .
+ruff format --check .
+```
+
+Coverage highlights:
+- API health, SPA fallback and cache-header behaviour
+- Security: auth-mode policy (fail-closed in production), security headers, secret-leak guards
+- Gemini key rotation & quota failover
+- Embedding fallback determinism and storage round-trips (incl. corrupt-DB backup)
+- Legacy phase tests for analysis, RAG, intelligence and workflow logic
+
+CI (`.github/workflows/ci.yml`) runs lint + tests on every push and pull request.
+
 ## Notes
 
 - Gemini keys are rotated automatically and the backend falls back to a
   rule-based offline answer when quotas are exhausted, so the app stays
   responsive at the free-tier limits.
+- Security practices and the auth/data-isolation model are documented in
+  [`SECURITY.md`](SECURITY.md).

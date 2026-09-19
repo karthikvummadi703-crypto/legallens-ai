@@ -1,7 +1,8 @@
 import re
-from typing import List, Dict, Any
-from app.models.document import ExtractedDocument
+from typing import Any
+
 from app.core.logging import logger
+from app.models.document import ExtractedDocument
 
 
 class LegalChunkingService:
@@ -18,17 +19,17 @@ class LegalChunkingService:
     - Table-aware chunking (keeps table rows together)
     """
 
-    MAX_CHUNK_SIZE = 1500   # Target max characters per chunk (up from 900)
-    OVERLAP_SIZE = 200      # Character overlap between chunks (up from 150)
+    MAX_CHUNK_SIZE = 1500  # Target max characters per chunk (up from 900)
+    OVERLAP_SIZE = 200  # Character overlap between chunks (up from 150)
 
     # Simple sentence boundary pattern — splits on period/question/exclamation
     # followed by whitespace and a capital letter (avoids splitting on abbreviations
     # like "U.S." or "No. 5")
-    _SENTENCE_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z\"\'\(])')
+    _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"\'\(])")
 
     @classmethod
-    def create_chunks(cls, extracted_doc: ExtractedDocument, user_id: str) -> List[Dict[str, Any]]:
-        chunks: List[Dict[str, Any]] = []
+    def create_chunks(cls, extracted_doc: ExtractedDocument, user_id: str) -> list[dict[str, Any]]:
+        chunks: list[dict[str, Any]] = []
         chunk_index = 0
 
         doc_id = extracted_doc.document_id
@@ -45,10 +46,10 @@ class LegalChunkingService:
 
             if page_clauses:
                 for clause in page_clauses:
-                    clause_text = clause.text if hasattr(clause, 'text') else str(clause)
-                    c_id = getattr(clause, 'clause_id', '')
-                    c_sec = getattr(clause, 'section', 'General')
-                    c_title = getattr(clause, 'title', '')
+                    clause_text = clause.text if hasattr(clause, "text") else str(clause)
+                    c_id = getattr(clause, "clause_id", "")
+                    c_sec = getattr(clause, "section", "General")
+                    c_title = getattr(clause, "title", "")
 
                     # Prepend section/clause header for embedding context
                     header = cls._build_header(c_sec, c_title, c_id)
@@ -56,23 +57,8 @@ class LegalChunkingService:
                     if len(clause_text) <= cls.MAX_CHUNK_SIZE:
                         # Prepend header to chunk text for richer embeddings
                         enriched_text = f"{header}\n{clause_text}" if header else clause_text
-                        chunks.append({
-                            "chunk_id": f"{doc_id}_chk_{chunk_index}",
-                            "document_id": doc_id,
-                            "user_id": user_id,
-                            "page_number": page_num,
-                            "section": c_sec,
-                            "clause_id": c_id,
-                            "text": enriched_text,
-                            "chunk_index": chunk_index
-                        })
-                        chunk_index += 1
-                    else:
-                        # Split large clause at sentence boundaries with overlap
-                        sub_chunks = cls._split_at_sentences(clause_text)
-                        for sub_txt in sub_chunks:
-                            enriched_text = f"{header}\n{sub_txt}" if header else sub_txt
-                            chunks.append({
+                        chunks.append(
+                            {
                                 "chunk_id": f"{doc_id}_chk_{chunk_index}",
                                 "document_id": doc_id,
                                 "user_id": user_id,
@@ -80,8 +66,27 @@ class LegalChunkingService:
                                 "section": c_sec,
                                 "clause_id": c_id,
                                 "text": enriched_text,
-                                "chunk_index": chunk_index
-                            })
+                                "chunk_index": chunk_index,
+                            }
+                        )
+                        chunk_index += 1
+                    else:
+                        # Split large clause at sentence boundaries with overlap
+                        sub_chunks = cls._split_at_sentences(clause_text)
+                        for sub_txt in sub_chunks:
+                            enriched_text = f"{header}\n{sub_txt}" if header else sub_txt
+                            chunks.append(
+                                {
+                                    "chunk_id": f"{doc_id}_chk_{chunk_index}",
+                                    "document_id": doc_id,
+                                    "user_id": user_id,
+                                    "page_number": page_num,
+                                    "section": c_sec,
+                                    "clause_id": c_id,
+                                    "text": enriched_text,
+                                    "chunk_index": chunk_index,
+                                }
+                            )
                             chunk_index += 1
             else:
                 # No specific clause detected; chunk page text intelligently
@@ -93,16 +98,18 @@ class LegalChunkingService:
                     table_chunks, non_table_text = cls._extract_table_chunks(page_text)
                     for t_chunk in table_chunks:
                         enriched = f"{header}\n{t_chunk}" if header else t_chunk
-                        chunks.append({
-                            "chunk_id": f"{doc_id}_chk_{chunk_index}",
-                            "document_id": doc_id,
-                            "user_id": user_id,
-                            "page_number": page_num,
-                            "section": section_name,
-                            "clause_id": "",
-                            "text": enriched,
-                            "chunk_index": chunk_index
-                        })
+                        chunks.append(
+                            {
+                                "chunk_id": f"{doc_id}_chk_{chunk_index}",
+                                "document_id": doc_id,
+                                "user_id": user_id,
+                                "page_number": page_num,
+                                "section": section_name,
+                                "clause_id": "",
+                                "text": enriched,
+                                "chunk_index": chunk_index,
+                            }
+                        )
                         chunk_index += 1
                     page_text = non_table_text  # Process remaining text normally
 
@@ -115,32 +122,42 @@ class LegalChunkingService:
                         current_text += ("\n\n" + para) if current_text else para
                     else:
                         if current_text:
-                            enriched = f"{header}\n{current_text.strip()}" if header else current_text.strip()
-                            chunks.append({
-                                "chunk_id": f"{doc_id}_chk_{chunk_index}",
-                                "document_id": doc_id,
-                                "user_id": user_id,
-                                "page_number": page_num,
-                                "section": section_name,
-                                "clause_id": "",
-                                "text": enriched,
-                                "chunk_index": chunk_index
-                            })
+                            enriched = (
+                                f"{header}\n{current_text.strip()}"
+                                if header
+                                else current_text.strip()
+                            )
+                            chunks.append(
+                                {
+                                    "chunk_id": f"{doc_id}_chk_{chunk_index}",
+                                    "document_id": doc_id,
+                                    "user_id": user_id,
+                                    "page_number": page_num,
+                                    "section": section_name,
+                                    "clause_id": "",
+                                    "text": enriched,
+                                    "chunk_index": chunk_index,
+                                }
+                            )
                             chunk_index += 1
                         current_text = para
 
                 if current_text:
-                    enriched = f"{header}\n{current_text.strip()}" if header else current_text.strip()
-                    chunks.append({
-                        "chunk_id": f"{doc_id}_chk_{chunk_index}",
-                        "document_id": doc_id,
-                        "user_id": user_id,
-                        "page_number": page_num,
-                        "section": section_name,
-                        "clause_id": "",
-                        "text": enriched,
-                        "chunk_index": chunk_index
-                    })
+                    enriched = (
+                        f"{header}\n{current_text.strip()}" if header else current_text.strip()
+                    )
+                    chunks.append(
+                        {
+                            "chunk_id": f"{doc_id}_chk_{chunk_index}",
+                            "document_id": doc_id,
+                            "user_id": user_id,
+                            "page_number": page_num,
+                            "section": section_name,
+                            "clause_id": "",
+                            "text": enriched,
+                            "chunk_index": chunk_index,
+                        }
+                    )
                     chunk_index += 1
 
         logger.info(f"Chunking complete: Created {len(chunks)} legal chunks for document {doc_id}.")
@@ -161,7 +178,7 @@ class LegalChunkingService:
     @classmethod
     def _extract_table_chunks(cls, text: str) -> tuple:
         """Separate table blocks from regular text. Returns (table_chunks, remaining_text)."""
-        table_pattern = re.compile(r'\[TABLE\](.*?)\[/TABLE\]', re.DOTALL)
+        table_pattern = re.compile(r"\[TABLE\](.*?)\[/TABLE\]", re.DOTALL)
         tables = []
         for match in table_pattern.finditer(text):
             table_text = match.group(0).strip()
@@ -176,10 +193,10 @@ class LegalChunkingService:
         return tables, remaining
 
     @classmethod
-    def _map_clauses_by_page(cls, doc: ExtractedDocument) -> Dict[int, list]:
+    def _map_clauses_by_page(cls, doc: ExtractedDocument) -> dict[int, list]:
         mapping = {}
-        for clause in getattr(doc, 'clauses', []):
-            pg = getattr(clause, 'page', 1)
+        for clause in getattr(doc, "clauses", []):
+            pg = getattr(clause, "page", 1)
             if pg not in mapping:
                 mapping[pg] = []
             mapping[pg].append(clause)
@@ -190,15 +207,15 @@ class LegalChunkingService:
         lines = [line.strip() for line in text.split("\n") if line.strip()]
         for line in lines[:5]:
             if len(line) < 80 and re.match(
-                r'^(?:SECTION|ARTICLE|CLAUSE|Part|Schedule|'
-                r'\d+[\.\)]\s|#{1,4}\s|[A-Z][A-Z\s]{3,30}$)',
+                r"^(?:SECTION|ARTICLE|CLAUSE|Part|Schedule|"
+                r"\d+[\.\)]\s|#{1,4}\s|[A-Z][A-Z\s]{3,30}$)",
                 line,
             ):
                 return line.strip(":.- ")
         return "General Terms"
 
     @classmethod
-    def _split_at_sentences(cls, text: str) -> List[str]:
+    def _split_at_sentences(cls, text: str) -> list[str]:
         """
         Split text at sentence boundaries with overlap.
         Never splits mid-sentence.
@@ -239,15 +256,15 @@ class LegalChunkingService:
         if len(text) <= cls.OVERLAP_SIZE:
             return text
         # Take the last OVERLAP_SIZE characters
-        tail = text[-cls.OVERLAP_SIZE:]
+        tail = text[-cls.OVERLAP_SIZE :]
         # Find the first sentence boundary in the tail
         match = cls._SENTENCE_RE.search(tail)
         if match:
-            return tail[match.start():].strip()
+            return tail[match.start() :].strip()
         return tail.strip()
 
     @classmethod
-    def _split_with_overlap(cls, text: str) -> List[str]:
+    def _split_with_overlap(cls, text: str) -> list[str]:
         """Fallback character-based splitting with overlap."""
         sub_chunks = []
         start = 0
@@ -258,5 +275,5 @@ class LegalChunkingService:
             sub_chunks.append(text[start:end].strip())
             if end >= text_len:
                 break
-            start += (cls.MAX_CHUNK_SIZE - cls.OVERLAP_SIZE)
+            start += cls.MAX_CHUNK_SIZE - cls.OVERLAP_SIZE
         return sub_chunks

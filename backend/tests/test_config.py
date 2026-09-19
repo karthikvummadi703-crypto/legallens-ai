@@ -1,6 +1,4 @@
-import os
-
-from app.config import is_cloud_mode, settings, is_gemini_configured
+from app.config import is_cloud_mode, settings
 
 
 def test_default_storage_backend_is_local():
@@ -30,7 +28,7 @@ def test_gemini_keys_are_deduped(monkeypatch):
 
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "abc")
     monkeypatch.setattr(settings, "GEMINI_API_KEY_2", "abc")
-    monkeypatch.setattr(settings, "GEMINI_API_KEY_3", "\"def\"")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY_3", '"def"')
     keys = get_gemini_keys()
     assert len(keys) == len(set(keys))
     assert "abc" in keys and "def" in keys

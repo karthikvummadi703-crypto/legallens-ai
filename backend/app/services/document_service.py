@@ -1,27 +1,29 @@
-import os
 import json
-import uuid
+import os
 import tempfile
 import threading
+import uuid
 from datetime import datetime
-from typing import List, Optional
+
 from fastapi import UploadFile
+
 from app.config import settings
+from app.core.logging import logger
 from app.models.document import DocumentMetadataResponse, ExtractedDocument
-from app.services.extraction_service import DocumentExtractionService
-from app.services.ai.gemini_service import GeminiAnalysisService
-from app.services.ai.schemas import FullDocumentAnalysis, ChecklistItemData
 from app.services.ai.chunking_service import LegalChunkingService
 from app.services.ai.embedding_service import EmbeddingService
+from app.services.ai.gemini_service import GeminiAnalysisService
+from app.services.ai.schemas import ChecklistItemData, FullDocumentAnalysis
 from app.services.ai.vector_service import VectorDatabaseService
-from app.utils.file_utils import sanitize_filename
+from app.services.extraction_service import DocumentExtractionService
 from app.utils import cloud_store
-from app.core.logging import logger
+from app.utils.file_utils import sanitize_filename
 
 DB_FILE_PATH = os.path.join(settings.DATA_DIR, "db.json")
 
 # Guard concurrent JSON DB reads/writes from multiple requests.
 _db_lock = threading.RLock()
+
 
 def _load_db() -> dict:
     if cloud_store.is_cloud_mode():
@@ -29,7 +31,7 @@ def _load_db() -> dict:
     with _db_lock:
         if os.path.exists(DB_FILE_PATH):
             try:
-                with open(DB_FILE_PATH, "r", encoding="utf-8") as f:
+                with open(DB_FILE_PATH, encoding="utf-8") as f:
                     data = json.load(f)
                 if isinstance(data, dict):
                     if "documents" not in data:
@@ -44,13 +46,16 @@ def _load_db() -> dict:
                 # user's uploads + chat history). Back it up for recovery.
                 try:
                     backup = DB_FILE_PATH + ".corrupt.bak"
-                    with open(DB_FILE_PATH, "r", encoding="utf-8") as src, \
-                         open(backup, "w", encoding="utf-8") as dst:
+                    with (
+                        open(DB_FILE_PATH, encoding="utf-8") as src,
+                        open(backup, "w", encoding="utf-8") as dst,
+                    ):
                         dst.write(src.read())
                     logger.error(f"DB file corrupt; backed up to {backup}: {e}")
                 except Exception:
                     logger.error(f"DB file corrupt and backup failed: {e}")
     return {"documents": {}, "analyses": {}, "conversations": {}}
+
 
 def _save_db(data: dict):
     if cloud_store.is_cloud_mode():
@@ -63,14 +68,17 @@ def _save_db(data: dict):
             json.dump(data, f, indent=2)
         os.replace(tmp_path, DB_FILE_PATH)
 
+
 class DocumentManager:
     @classmethod
-    async def process_and_save_upload(cls, file: UploadFile, content: bytes, user_id: str) -> DocumentMetadataResponse:
+    async def process_and_save_upload(
+        cls, file: UploadFile, content: bytes, user_id: str
+    ) -> DocumentMetadataResponse:
         doc_id = f"doc-{uuid.uuid4().hex[:8]}"
         original_filename = file.filename or "uploaded_document.pdf"
         filename = sanitize_filename(original_filename) or f"document{uuid.uuid4().hex[:8]}"
         ext = os.path.splitext(filename)[1].lower()
-        
+
         # Save raw uploaded file. Cloud mode persists the file to Firebase
         # RTDB (serverless FS is read-only/ephemeral) and extracts from a
         # /tmp copy; local mode keeps the historical on-disk behaviour.
@@ -88,7 +96,9 @@ class DocumentManager:
             with open(extract_path, "wb") as f:
                 f.write(content)
             try:
-                extracted = DocumentExtractionService.extract_document(extract_path, doc_id, filename)
+                extracted = DocumentExtractionService.extract_document(
+                    extract_path, doc_id, filename
+                )
             finally:
                 try:
                     os.remove(extract_path)
@@ -106,7 +116,9 @@ class DocumentManager:
                 raise ValueError("Failed to persist uploaded file.")
             # Execute Phase 2 extraction (clean up partial file if extraction fails)
             try:
-                extracted = DocumentExtractionService.extract_document(saved_file_path, doc_id, filename)
+                extracted = DocumentExtractionService.extract_document(
+                    saved_file_path, doc_id, filename
+                )
             except Exception as e:
                 logger.error(f"Extraction failed for {doc_id}: {e}")
                 try:
@@ -114,17 +126,31 @@ class DocumentManager:
                 except Exception:
                     pass
                 raise
-        
+
         # Format document metadata response
         file_size_mb = len(content) / (1024 * 1024)
-        size_str = f"{file_size_mb:.1f} MB" if file_size_mb >= 1.0 else f"{int(len(content)/1024)} KB"
+        size_str = (
+            f"{file_size_mb:.1f} MB" if file_size_mb >= 1.0 else f"{int(len(content) / 1024)} KB"
+        )
 
         lowered = filename.lower()
         if any(k in lowered for k in ("employment", "offer", "appointment", "hr", "resume", "cv")):
             category = "Employment"
         elif any(k in lowered for k in ("lease", "rent", "property", "estate", "mortgage", "deed")):
             category = "Real Estate"
-        elif any(k in lowered for k in ("saas", "vendor", "supplier", "service", "subscription", "license", "msa", "consult")):
+        elif any(
+            k in lowered
+            for k in (
+                "saas",
+                "vendor",
+                "supplier",
+                "service",
+                "subscription",
+                "license",
+                "msa",
+                "consult",
+            )
+        ):
             category = "Vendor & SaaS"
         elif any(k in lowered for k in ("nda", "confidential", "non-disclosure", "privacy")):
             category = "Confidentiality"
@@ -134,7 +160,9 @@ class DocumentManager:
         meta = DocumentMetadataResponse(
             id=doc_id,
             name=filename,
-            type="TXT" if ext in (".md", ".markdown", ".csv", ".html", ".htm", ".log") else ext.replace(".", "").upper(),
+            type="TXT"
+            if ext in (".md", ".markdown", ".csv", ".html", ".htm", ".log")
+            else ext.replace(".", "").upper(),
             uploadDate=datetime.now().strftime("%b %d, %Y"),
             size=size_str,
             analysisStatus="Processing",
@@ -145,7 +173,7 @@ class DocumentManager:
             summary="Document processed and ready for AI analysis.",
             clausesCount=len(extracted.clauses),
             risksCount=0,
-            obligationsCount=0
+            obligationsCount=0,
         )
 
         db = _load_db()
@@ -153,7 +181,7 @@ class DocumentManager:
             "metadata": meta.model_dump(),
             "extracted": extracted.model_dump(),
             "user_id": user_id,
-            "saved_path": saved_file_path
+            "saved_path": saved_file_path,
         }
         _save_db(db)
 
@@ -177,7 +205,7 @@ class DocumentManager:
 
         extracted = ExtractedDocument(**entry["extracted"])
         chunks = LegalChunkingService.create_chunks(extracted, user_id)
-        
+
         chunk_texts = [c["text"] for c in chunks]
         embeddings = EmbeddingService.generate_embeddings(chunk_texts)
 
@@ -185,10 +213,12 @@ class DocumentManager:
         success = VectorDatabaseService.upsert_document_chunks(
             user_id, doc_id, chunks, embeddings, document_name=doc_name
         )
-        
+
         db = _load_db()
         if doc_id in db.get("documents", {}):
-            db["documents"][doc_id]["metadata"]["indexingStatus"] = "indexed" if success else "indexing_failed"
+            db["documents"][doc_id]["metadata"]["indexingStatus"] = (
+                "indexed" if success else "indexing_failed"
+            )
             _save_db(db)
 
         return success
@@ -199,16 +229,16 @@ class DocumentManager:
         return cls.index_document(doc_id, user_id)
 
     @classmethod
-    def get_user_documents(cls, user_id: str) -> List[DocumentMetadataResponse]:
+    def get_user_documents(cls, user_id: str) -> list[DocumentMetadataResponse]:
         db = _load_db()
         docs = []
-        for doc_id, entry in db.get("documents", {}).items():
+        for _doc_id, entry in db.get("documents", {}).items():
             if entry.get("user_id") == user_id:
                 docs.append(DocumentMetadataResponse(**entry["metadata"]))
         return docs
 
     @classmethod
-    def get_document_by_id(cls, doc_id: str, user_id: str) -> Optional[dict]:
+    def get_document_by_id(cls, doc_id: str, user_id: str) -> dict | None:
         db = _load_db()
         entry = db.get("documents", {}).get(doc_id)
         if entry and entry.get("user_id") == user_id:
@@ -240,7 +270,7 @@ class DocumentManager:
         return analysis
 
     @classmethod
-    def get_document_analysis(cls, doc_id: str, user_id: str) -> Optional[FullDocumentAnalysis]:
+    def get_document_analysis(cls, doc_id: str, user_id: str) -> FullDocumentAnalysis | None:
         db = _load_db()
         # Verify ownership
         entry = db.get("documents", {}).get(doc_id)
@@ -252,30 +282,33 @@ class DocumentManager:
         return None
 
     @classmethod
-    def get_document_checklist(cls, doc_id: str, user_id: str) -> List[ChecklistItemData]:
+    def get_document_checklist(cls, doc_id: str, user_id: str) -> list[ChecklistItemData]:
         """
         Builds an actionable pre-signing checklist from the stored document
         analysis. Returns an empty list when the document has not been
-        analyzed yet — never fabricated items.
+        analyzed yet â€” never fabricated items.
         """
         analysis = cls.get_document_analysis(doc_id, user_id)
         if not analysis:
             return []
 
-        items: List[ChecklistItemData] = []
+        items: list[ChecklistItemData] = []
 
-        def _add(section: str, title: str, explanation: str, page: int,
-                 section_ref: str, attention: str):
-            items.append(ChecklistItemData(
-                id=f"chk-{len(items) + 1}",
-                section=section,
-                title=title,
-                explanation=explanation,
-                page=page or 1,
-                section_ref=section_ref or "General",
-                attention_level=attention,  # type: ignore[arg-type]
-                completed=False,
-            ))
+        def _add(
+            section: str, title: str, explanation: str, page: int, section_ref: str, attention: str
+        ):
+            items.append(
+                ChecklistItemData(
+                    id=f"chk-{len(items) + 1}",
+                    section=section,
+                    title=title,
+                    explanation=explanation,
+                    page=page or 1,
+                    section_ref=section_ref or "General",
+                    attention_level=attention,  # type: ignore[arg-type]
+                    completed=False,
+                )
+            )
 
         for ob in analysis.obligations:
             _add(
@@ -283,16 +316,19 @@ class DocumentManager:
                 f"Review obligation: {ob.obligation[:80]}",
                 f"The document requires: {ob.obligation} Deadline: {ob.deadline}. "
                 f"Consequence of non-compliance: {ob.consequence}.",
-                ob.page, ob.section, "medium",
+                ob.page,
+                ob.section,
+                "medium",
             )
 
         for p in analysis.payments:
             _add(
                 "Payments",
                 f"Verify payment term: {p.item[:80]}",
-                f"Amount: {p.amount} ({p.frequency}). Due: {p.due_date}. "
-                f"Late fees: {p.late_fees}.",
-                p.page, p.section, "medium",
+                f"Amount: {p.amount} ({p.frequency}). Due: {p.due_date}. Late fees: {p.late_fees}.",
+                p.page,
+                p.section,
+                "medium",
             )
 
         for kd in analysis.key_dates:
@@ -301,20 +337,31 @@ class DocumentManager:
                 f"Calendar deadline: {kd.event[:80]}",
                 f"{kd.event}: {kd.date_or_period}. Missing this date may carry consequences "
                 "described in the document.",
-                kd.page, kd.section,
+                kd.page,
+                kd.section,
                 kd.importance if kd.importance in ("high", "medium", "low") else "medium",
             )
 
         for r in analysis.potential_risks:
-            section = r.category if r.category in (
-                "Payments", "Term", "Termination", "Obligations",
-                "Liability", "Dispute Resolution",
-            ) else "Liability"
+            section = (
+                r.category
+                if r.category
+                in (
+                    "Payments",
+                    "Term",
+                    "Termination",
+                    "Obligations",
+                    "Liability",
+                    "Dispute Resolution",
+                )
+                else "Liability"
+            )
             _add(
                 section,
                 f"Examine flagged concern: {r.title[:80]}",
                 f"{r.explanation} Practical impact: {r.why_it_matters}",
-                r.page, r.section,
+                r.page,
+                r.section,
                 r.severity if r.severity in ("high", "medium", "low") else "medium",
             )
 
@@ -325,7 +372,9 @@ class DocumentManager:
                 "Confirm termination rights and penalties",
                 f"Who can terminate: {term.who_can_terminate}. Notice: {term.notice_period}. "
                 f"Penalties: {term.penalties}. Cure period: {term.cure_period}.",
-                term.page, term.section, "high",
+                term.page,
+                term.section,
+                "high",
             )
 
         renewal = analysis.renewal_analysis
@@ -335,7 +384,9 @@ class DocumentManager:
                 "Calendar the renewal opt-out deadline",
                 f"Renewal summary: {renewal.summary} Notice required: {renewal.notice_period}. "
                 f"Opt-out method: {renewal.opt_out}.",
-                renewal.page, renewal.section, "medium",
+                renewal.page,
+                renewal.section,
+                "medium",
             )
 
         return items
@@ -346,7 +397,7 @@ class DocumentManager:
         entry = db.get("documents", {}).get(doc_id)
         if not entry or entry.get("user_id") != user_id:
             return False
-        
+
         # Clean up the stored file if it exists. Cloud mode deletes the
         # persisted file node when saved_path holds a cloud name, otherwise
         # removes the local file.
@@ -368,6 +419,7 @@ class DocumentManager:
 
         # Purge conversation history
         from app.services.ai.rag_service import RAGService
+
         RAGService.delete_conversation_history(user_id, doc_id)
 
         del db["documents"][doc_id]
@@ -375,5 +427,3 @@ class DocumentManager:
             del db["analyses"][doc_id]
         _save_db(db)
         return True
-
-

@@ -1,8 +1,8 @@
 import os
 import re
-from typing import List, Tuple
-from app.models.document import ExtractedDocument, PageContent, DocumentSection, DocumentClause
+
 from app.core.logging import logger
+from app.models.document import DocumentClause, DocumentSection, ExtractedDocument, PageContent
 
 
 class DocumentExtractionService:
@@ -33,24 +33,24 @@ class DocumentExtractionService:
     _CLAUSE_PATTERNS = [
         # Numbered clauses: 1. / 1.2 / 1.2.3 followed by a title word
         re.compile(
-            r'^(\d{1,3}(?:\.\d{1,3}){0,4})[\.\)]\s+([A-Z][^\n]{3,80})',
+            r"^(\d{1,3}(?:\.\d{1,3}){0,4})[\.\)]\s+([A-Z][^\n]{3,80})",
             re.MULTILINE,
         ),
         # Article / Section / Clause prefix
         re.compile(
-            r'^((?:Article|Section|Clause|Part|Schedule|Appendix|Annex|Exhibit)\s+'
-            r'(?:\d{1,3}(?:\.\d{1,3}){0,2}|[IVXLCDM]+|[A-Z]))'
-            r'[\s\.\:\—\-–]+([A-Z][^\n]{3,80})',
+            r"^((?:Article|Section|Clause|Part|Schedule|Appendix|Annex|Exhibit)\s+"
+            r"(?:\d{1,3}(?:\.\d{1,3}){0,2}|[IVXLCDM]+|[A-Z]))"
+            r"[\s\.\:\—\-–]+([A-Z][^\n]{3,80})",
             re.MULTILINE | re.IGNORECASE,
         ),
         # Lettered clauses: (a) / (b) / (i) / (ii)
         re.compile(
-            r'^\(([a-z]{1,4}|[ivxlcdm]{1,6})\)\s+([A-Z][^\n]{3,80})',
+            r"^\(([a-z]{1,4}|[ivxlcdm]{1,6})\)\s+([A-Z][^\n]{3,80})",
             re.MULTILINE,
         ),
         # Roman numeral clauses: IV. Title
         re.compile(
-            r'^([IVXLCDM]{1,6})[\.\)]\s+([A-Z][^\n]{3,80})',
+            r"^([IVXLCDM]{1,6})[\.\)]\s+([A-Z][^\n]{3,80})",
             re.MULTILINE,
         ),
     ]
@@ -61,19 +61,21 @@ class DocumentExtractionService:
     _SECTION_PATTERNS = [
         # Numbered section headers: "1. DEFINITIONS", "SECTION 5 — PAYMENT"
         re.compile(
-            r'^(?:(?:SECTION|ARTICLE|PART|SCHEDULE)\s+)?'
-            r'(?:\d{1,3}[\.\)]?\s+)?'
-            r'([A-Z][A-Z\s\-&,]{3,50})\s*$',
+            r"^(?:(?:SECTION|ARTICLE|PART|SCHEDULE)\s+)?"
+            r"(?:\d{1,3}[\.\)]?\s+)?"
+            r"([A-Z][A-Z\s\-&,]{3,50})\s*$",
             re.MULTILINE,
         ),
         # Markdown-style headers: "# Title", "## Title"
-        re.compile(r'^#{1,4}\s+(.{3,60})\s*$', re.MULTILINE),
+        re.compile(r"^#{1,4}\s+(.{3,60})\s*$", re.MULTILINE),
         # Underlined headers (line followed by === or ---)
-        re.compile(r'^(.{3,60})\n[=\-]{3,}\s*$', re.MULTILINE),
+        re.compile(r"^(.{3,60})\n[=\-]{3,}\s*$", re.MULTILINE),
     ]
 
     @classmethod
-    def extract_document(cls, file_path: str, document_id: str, original_filename: str) -> ExtractedDocument:
+    def extract_document(
+        cls, file_path: str, document_id: str, original_filename: str
+    ) -> ExtractedDocument:
         ext = os.path.splitext(original_filename)[1].lower()
         file_size = os.path.getsize(file_path)
 
@@ -106,17 +108,18 @@ class DocumentExtractionService:
             pages=pages,
             sections=sections,
             clauses=clauses,
-            full_text=full_text
+            full_text=full_text,
         )
 
     # ================================================================== #
     # PDF extraction (with table support)
     # ================================================================== #
     @classmethod
-    def _extract_pdf(cls, file_path: str) -> List[PageContent]:
+    def _extract_pdf(cls, file_path: str) -> list[PageContent]:
         pages = []
         try:
             import fitz  # PyMuPDF
+
             doc = fitz.open(file_path)
             for i, page in enumerate(doc):
                 text = page.get_text("text").strip()
@@ -125,8 +128,7 @@ class DocumentExtractionService:
                 if len(text) < 50:
                     blocks = page.get_text("blocks")
                     block_texts = [
-                        b[4].strip() for b in blocks
-                        if isinstance(b[4], str) and b[4].strip()
+                        b[4].strip() for b in blocks if isinstance(b[4], str) and b[4].strip()
                     ]
                     if block_texts:
                         text = "\n".join(block_texts)
@@ -142,16 +144,18 @@ class DocumentExtractionService:
                         "Text extraction was limited. Consider re-uploading a text-based PDF for best results.]"
                     )
 
-                pages.append(PageContent(
-                    page_number=i + 1,
-                    text=text,
-                    character_count=len(text)
-                ))
+                pages.append(PageContent(page_number=i + 1, text=text, character_count=len(text)))
             doc.close()
         except Exception as e:
             logger.error(f"PyMuPDF PDF extraction error: {e}")
-            pages.append(PageContent(page_number=1, text="Error reading PDF pages", character_count=24))
-        return pages if pages else [PageContent(page_number=1, text="Empty document", character_count=14)]
+            pages.append(
+                PageContent(page_number=1, text="Error reading PDF pages", character_count=24)
+            )
+        return (
+            pages
+            if pages
+            else [PageContent(page_number=1, text="Empty document", character_count=14)]
+        )
 
     @classmethod
     def _extract_page_tables(cls, page) -> str:
@@ -174,9 +178,7 @@ class DocumentExtractionService:
                         if any(cells):  # Skip fully empty rows
                             formatted_rows.append(" | ".join(cells))
                     if formatted_rows:
-                        table_blocks.append(
-                            "[TABLE]\n" + "\n".join(formatted_rows) + "\n[/TABLE]"
-                        )
+                        table_blocks.append("[TABLE]\n" + "\n".join(formatted_rows) + "\n[/TABLE]")
                 except Exception:
                     continue
             return "\n\n".join(table_blocks)
@@ -191,10 +193,11 @@ class DocumentExtractionService:
     # DOCX extraction
     # ================================================================== #
     @classmethod
-    def _extract_docx(cls, file_path: str) -> List[PageContent]:
+    def _extract_docx(cls, file_path: str) -> list[PageContent]:
         pages = []
         try:
             import docx
+
             doc = docx.Document(file_path)
             paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
@@ -218,29 +221,41 @@ class DocumentExtractionService:
                 current_len += len(p)
                 if current_len >= 2500:
                     text_str = "\n\n".join(page_text)
-                    pages.append(PageContent(page_number=page_num, text=text_str, character_count=len(text_str)))
+                    pages.append(
+                        PageContent(
+                            page_number=page_num, text=text_str, character_count=len(text_str)
+                        )
+                    )
                     page_num += 1
                     page_text = []
                     current_len = 0
 
             if page_text:
                 text_str = "\n\n".join(page_text)
-                pages.append(PageContent(page_number=page_num, text=text_str, character_count=len(text_str)))
+                pages.append(
+                    PageContent(page_number=page_num, text=text_str, character_count=len(text_str))
+                )
         except Exception as e:
             logger.error(f"python-docx extraction error: {e}")
-            pages.append(PageContent(page_number=1, text="Error extracting DOCX text", character_count=26))
-        return pages if pages else [PageContent(page_number=1, text="Empty DOCX document", character_count=19)]
+            pages.append(
+                PageContent(page_number=1, text="Error extracting DOCX text", character_count=26)
+            )
+        return (
+            pages
+            if pages
+            else [PageContent(page_number=1, text="Empty DOCX document", character_count=19)]
+        )
 
     # ================================================================== #
     # Plain text extraction
     # ================================================================== #
     @classmethod
-    def _extract_txt(cls, file_path: str) -> List[PageContent]:
+    def _extract_txt(cls, file_path: str) -> list[PageContent]:
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 raw_text = f.read()
         except UnicodeDecodeError:
-            with open(file_path, 'r', encoding='latin-1') as f:
+            with open(file_path, encoding="latin-1") as f:
                 raw_text = f.read()
 
         paragraphs = [p.strip() for p in raw_text.split("\n\n") if p.strip()]
@@ -254,38 +269,48 @@ class DocumentExtractionService:
             current_len += len(p)
             if current_len >= 2500:
                 text_str = "\n\n".join(page_text)
-                pages.append(PageContent(page_number=page_num, text=text_str, character_count=len(text_str)))
+                pages.append(
+                    PageContent(page_number=page_num, text=text_str, character_count=len(text_str))
+                )
                 page_num += 1
                 page_text = []
                 current_len = 0
 
         if page_text:
             text_str = "\n\n".join(page_text)
-            pages.append(PageContent(page_number=page_num, text=text_str, character_count=len(text_str)))
+            pages.append(
+                PageContent(page_number=page_num, text=text_str, character_count=len(text_str))
+            )
 
-        return pages if pages else [PageContent(page_number=1, text=raw_text.strip(), character_count=len(raw_text))]
+        return (
+            pages
+            if pages
+            else [PageContent(page_number=1, text=raw_text.strip(), character_count=len(raw_text))]
+        )
 
     @classmethod
-    def _strip_html_pages(cls, pages: List[PageContent]) -> List[PageContent]:
+    def _strip_html_pages(cls, pages: list[PageContent]) -> list[PageContent]:
         """Removes HTML markup so HTML uploads read as clean text."""
-        cleaned: List[PageContent] = []
+        cleaned: list[PageContent] = []
         for page in pages:
-            text = re.sub(r'(?is)<(script|style).*?>.*?</\1>', ' ', page.text)
-            text = re.sub(r'(?s)<[^>]*>', ' ', text)
-            text = re.sub(r'[ \t]+', ' ', text)
-            text = re.sub(r'\n\s*\n+', '\n\n', text).strip()
-            cleaned.append(PageContent(
-                page_number=page.page_number,
-                text=text or page.text,
-                character_count=len(text or page.text),
-            ))
+            text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", page.text)
+            text = re.sub(r"(?s)<[^>]*>", " ", text)
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
+            cleaned.append(
+                PageContent(
+                    page_number=page.page_number,
+                    text=text or page.text,
+                    character_count=len(text or page.text),
+                )
+            )
         return cleaned
 
     # ================================================================== #
     # Section detection (improved)
     # ================================================================== #
     @classmethod
-    def _detect_sections(cls, pages: List[PageContent]) -> List[DocumentSection]:
+    def _detect_sections(cls, pages: list[PageContent]) -> list[DocumentSection]:
         sections = []
         seen_titles = set()
 
@@ -326,20 +351,21 @@ class DocumentExtractionService:
                         continue
                     seen_titles.add(title_key)
 
-                    sections.append(DocumentSection(
-                        title=title,
-                        start_page=page.page_number,
-                        end_page=page.page_number,
-                        content=""
-                    ))
+                    sections.append(
+                        DocumentSection(
+                            title=title,
+                            start_page=page.page_number,
+                            end_page=page.page_number,
+                            content="",
+                        )
+                    )
 
         if not sections:
-            sections.append(DocumentSection(
-                title="General Terms",
-                start_page=1,
-                end_page=len(pages),
-                content=""
-            ))
+            sections.append(
+                DocumentSection(
+                    title="General Terms", start_page=1, end_page=len(pages), content=""
+                )
+            )
 
         # Update end_page: each section extends until the next section starts
         for i in range(len(sections) - 1):
@@ -351,14 +377,18 @@ class DocumentExtractionService:
     # Clause detection (comprehensive, with full body text)
     # ================================================================== #
     @classmethod
-    def _detect_clauses_full(cls, pages: List[PageContent], sections: List[DocumentSection]) -> List[DocumentClause]:
+    def _detect_clauses_full(
+        cls, pages: list[PageContent], sections: list[DocumentSection]
+    ) -> list[DocumentClause]:
         """
         Detects clauses using multiple patterns and captures the FULL clause
         body text (not just the title line). Each clause's text extends from
         its header until the next detected clause header or end of page.
         """
         # First pass: find all clause header positions across all pages
-        raw_matches: List[Tuple[int, int, str, str, str]] = []  # (page_num, char_offset, clause_id, title, full_line)
+        raw_matches: list[
+            tuple[int, int, str, str, str]
+        ] = []  # (page_num, char_offset, clause_id, title, full_line)
 
         for page in pages:
             text = page.text
@@ -369,17 +399,19 @@ class DocumentExtractionService:
                 for match in pattern.finditer(text):
                     clause_id = match.group(1).strip()
                     title = match.group(2).strip()
-                    raw_matches.append((
-                        page.page_number,
-                        match.start(),
-                        clause_id,
-                        title,
-                        match.group(0).strip(),
-                    ))
+                    raw_matches.append(
+                        (
+                            page.page_number,
+                            match.start(),
+                            clause_id,
+                            title,
+                            match.group(0).strip(),
+                        )
+                    )
 
         # Deduplicate by (page, offset)
         seen = set()
-        unique_matches: List[Tuple[int, int, str, str, str]] = []
+        unique_matches: list[tuple[int, int, str, str, str]] = []
         for entry in raw_matches:
             key = (entry[0], entry[1])
             if key not in seen:
@@ -391,7 +423,7 @@ class DocumentExtractionService:
 
         # Second pass: extract full clause body text
         page_texts = {p.page_number: p.text for p in pages}
-        clauses: List[DocumentClause] = []
+        clauses: list[DocumentClause] = []
 
         for i, (page_num, offset, clause_id, title, _full_line) in enumerate(unique_matches):
             page_text = page_texts.get(page_num, "")
@@ -413,19 +445,21 @@ class DocumentExtractionService:
             # Determine which section this clause belongs to
             section_name = cls._find_section_for_page(page_num, sections)
 
-            clauses.append(DocumentClause(
-                clause_id=clause_id,
-                title=title[:80],
-                page=page_num,
-                section=section_name,
-                text=body,
-            ))
+            clauses.append(
+                DocumentClause(
+                    clause_id=clause_id,
+                    title=title[:80],
+                    page=page_num,
+                    section=section_name,
+                    text=body,
+                )
+            )
 
         # Cap at reasonable number
         return clauses[:60]
 
     @classmethod
-    def _find_section_for_page(cls, page_num: int, sections: List[DocumentSection]) -> str:
+    def _find_section_for_page(cls, page_num: int, sections: list[DocumentSection]) -> str:
         """Find the section that contains the given page number."""
         best = "General"
         for s in sections:
@@ -439,5 +473,7 @@ class DocumentExtractionService:
 
     # Keep the old method signature for backward compatibility
     @classmethod
-    def _detect_clauses(cls, pages: List[PageContent], sections: List[DocumentSection]) -> List[DocumentClause]:
+    def _detect_clauses(
+        cls, pages: list[PageContent], sections: list[DocumentSection]
+    ) -> list[DocumentClause]:
         return cls._detect_clauses_full(pages, sections)

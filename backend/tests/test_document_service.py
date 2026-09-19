@@ -1,6 +1,6 @@
 import os
 
-from app.services.document_service import _load_db, _save_db, DB_FILE_PATH
+from app.services.document_service import _load_db, _save_db
 
 
 def test_local_db_roundtrip(monkeypatch, tmp_path):

@@ -2,7 +2,10 @@ import base64
 import json
 import os
 
-from app.config import settings, is_cloud_mode
+from app.config import (  # noqa: F401 - is_cloud_mode re-exported; callers use cloud_store.is_cloud_mode()
+    is_cloud_mode,
+    settings,
+)
 from app.core.logging import logger
 
 
@@ -73,8 +76,10 @@ def firebase_app():
 # Realtime Database (JSON tree — mirrors the legacy db.json model)
 # --------------------------------------------------------------------------
 
+
 def _rtdb_ref(node_path: str):
     from firebase_admin import db
+
     return db.reference(node_path, app=firebase_app())
 
 
@@ -108,16 +113,22 @@ def rtdb_set(node_path: str, value) -> None:
 # holds ~32MB, which is far beyond any practical legal document here.
 # --------------------------------------------------------------------------
 
+
 def _blob_node_name(blob_name: str) -> str:
     # RTDB path segments cannot contain '#', '$', '[', ']', '.', or '/'.
     return base64.urlsafe_b64encode(blob_name.encode("utf-8")).decode("ascii")
 
 
-def blob_upload(blob_name: str, content: bytes, content_type: str = "application/octet-stream") -> None:
+def blob_upload(
+    blob_name: str, content: bytes, content_type: str = "application/octet-stream"
+) -> None:
     try:
-        rtdb_set(f"db/doc_files/{_blob_node_name(blob_name)}", {
-            "content": base64.b64encode(content).decode("ascii"),
-        })
+        rtdb_set(
+            f"db/doc_files/{_blob_node_name(blob_name)}",
+            {
+                "content": base64.b64encode(content).decode("ascii"),
+            },
+        )
         logger.info(f"Persisted '{blob_name}' ({len(content)} bytes) to Firebase RTDB.")
     except CloudStoreError as e:
         raise CloudStoreError(f"Failed to persist file '{blob_name}': {e}") from e
@@ -148,6 +159,7 @@ def blob_delete(blob_name: str) -> None:
 # --------------------------------------------------------------------------
 # High-level helpers used by the document / vector services
 # --------------------------------------------------------------------------
+
 
 def get_db_sections() -> dict:
     """Return the {documents, analyses, conversations} JSON tree."""

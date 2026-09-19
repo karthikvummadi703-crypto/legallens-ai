@@ -1,10 +1,11 @@
-import os
 from fastapi import Header, HTTPException
+
+from app.config import is_cloud_mode, settings
 from app.core.logging import logger
-from app.config import settings, is_cloud_mode
 
 # Global Firebase admin initialization
 _firebase_initialized = False
+
 
 def init_firebase_admin():
     global _firebase_initialized
@@ -12,6 +13,7 @@ def init_firebase_admin():
         return
     try:
         from app.utils.cloud_store import init_firebase_sdk
+
         _firebase_initialized = init_firebase_sdk()
         if not _firebase_initialized:
             logger.warning(
@@ -103,11 +105,16 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
         if _auth_mode() == "dev":
             logger.warning("Dev auth fallback in use: no Authorization header provided.")
             return _dev_user()
-        raise HTTPException(status_code=401, detail="Missing Authorization header. Expected 'Bearer <token>'.")
+        raise HTTPException(
+            status_code=401, detail="Missing Authorization header. Expected 'Bearer <token>'."
+        )
 
     parts = authorization.split(" ")
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header format. Expected 'Bearer <token>'.",
+        )
 
     token = parts[1]
 
@@ -117,12 +124,15 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
     if not firebase_ready:
         if _dev_fallback_allowed(False):
             per_user = _dev_user_from_token(token)
-            logger.info(f"Dev auth fallback in use (unverified): uid='{per_user.get('uid')}' email='{per_user.get('email')}'. Add firebase-service-account.json for real verification.")
+            logger.info(
+                f"Dev auth fallback in use (unverified): uid='{per_user.get('uid')}' email='{per_user.get('email')}'. Add firebase-service-account.json for real verification."
+            )
             return per_user
-        raise HTTPException(status_code=401, detail="Authentication service unavailable. Please try again later.")
+        raise HTTPException(
+            status_code=401, detail="Authentication service unavailable. Please try again later."
+        )
 
     try:
-        import firebase_admin
         from firebase_admin import auth
 
         decoded_token = auth.verify_id_token(token)
@@ -139,7 +149,7 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
         return {
             "uid": decoded_token.get("uid"),
             "email": decoded_token.get("email", ""),
-            "name": decoded_token.get("name", "Authenticated User")
+            "name": decoded_token.get("name", "Authenticated User"),
         }
     except HTTPException:
         raise
@@ -148,4 +158,6 @@ async def get_current_user(authorization: str = Header(None)) -> dict:
         if _auth_mode() == "dev":
             logger.info("Dev auth fallback in use after token verification failure.")
             return _dev_user()
-        raise HTTPException(status_code=401, detail="Invalid or expired authentication token. Please sign in again.")
+        raise HTTPException(
+            status_code=401, detail="Invalid or expired authentication token. Please sign in again."
+        )

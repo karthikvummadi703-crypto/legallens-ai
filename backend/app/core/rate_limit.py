@@ -1,8 +1,9 @@
 import time
 from collections import defaultdict, deque
+
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

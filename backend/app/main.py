@@ -1,17 +1,20 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from app.config import settings, is_cloud_mode
-from app.api.routes.health import router as health_router
+from fastapi.responses import FileResponse, JSONResponse
+
+from app.api.routes.chat import router as chat_router
 from app.api.routes.debug import router as debug_router
 from app.api.routes.documents import router as documents_router
-from app.api.routes.chat import router as chat_router
 from app.api.routes.general_chat import router as general_chat_router
+from app.api.routes.health import router as health_router
+from app.config import is_cloud_mode, settings
 from app.core.logging import logger
 from app.core.rate_limit import RateLimitMiddleware
+from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.static import ImmutableStaticFiles
 
 
 def _reconcile_vector_index() -> None:
@@ -22,8 +25,8 @@ def _reconcile_vector_index() -> None:
     Runs in a background thread so startup is never blocked.
     """
     try:
-        from app.services.document_service import DocumentManager, _load_db
         from app.services.ai.vector_service import VectorDatabaseService
+        from app.services.document_service import DocumentManager, _load_db
 
         db = _load_db()
         repaired = 0
@@ -58,6 +61,7 @@ async def lifespan(app: FastAPI):
     # cold start).
     if is_cloud_mode():
         from app.utils.cloud_store import init_firebase_sdk
+
         if init_firebase_sdk():
             logger.info("Cloud persistence ready (Firebase Realtime Database).")
         else:
@@ -69,6 +73,7 @@ async def lifespan(app: FastAPI):
         return
 
     import threading
+
     thread = threading.Thread(target=_reconcile_vector_index, daemon=True)
     thread.start()
     yield
@@ -106,6 +111,9 @@ app.add_middleware(
     window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
 )
 
+# Baseline security headers applied to every response (outermost middleware).
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Mount Routers under /api prefix
 app.include_router(health_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
@@ -125,7 +133,12 @@ _FRONTEND_DIR = next(
 if _FRONTEND_DIR is not None:
     _assets_dir = _FRONTEND_DIR / "assets"
     if _assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+        # Build assets are content-hashed by Vite -> safe to cache for a year.
+        app.mount(
+            "/assets",
+            ImmutableStaticFiles(directory=str(_assets_dir)),
+            name="assets",
+        )
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def _spa_fallback(full_path: str):
@@ -135,8 +148,15 @@ if _FRONTEND_DIR is not None:
         except ValueError:
             return JSONResponse(status_code=404, content={"detail": "Not found"})
         if target.is_file():
-            return FileResponse(target)
-        return FileResponse(_FRONTEND_DIR / "index.html")
+            # Hashed build files are immutable; the SPA shell must never cache.
+            return FileResponse(
+                target,
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
+        return FileResponse(
+            _FRONTEND_DIR / "index.html",
+            headers={"Cache-Control": "no-cache"},
+        )
 
 
 @app.exception_handler(Exception)
@@ -144,9 +164,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global unhandled exception on {request.method} {request.url}: {exc}")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "An internal server error occurred. Please try again later."}
+        content={"detail": "An internal server error occurred. Please try again later."},
     )
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app.main:app", host="0.0.0.0", port=settings.PORT, reload=True)

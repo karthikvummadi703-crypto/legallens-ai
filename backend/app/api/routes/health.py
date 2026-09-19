@@ -1,7 +1,9 @@
 from fastapi import APIRouter
-from app.config import settings, is_gemini_configured, get_gemini_keys
+
+from app.config import get_gemini_keys, is_gemini_configured, settings
 
 router = APIRouter()
+
 
 @router.get("/health")
 def health_check():

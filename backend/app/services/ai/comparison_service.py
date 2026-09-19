@@ -1,21 +1,23 @@
 import json
 import re
-from typing import List, Optional
+
 from app.config import settings
 from app.core.logging import logger
+from app.services.ai.prompts import COMPARISON_USER_PROMPT_TEMPLATE, SYSTEM_COMPARISON_PROMPT
 from app.services.ai.schemas import (
-    DocumentComparison,
     ComparisonDifference,
     ComparisonSummary,
+    DocumentComparison,
 )
-from app.services.ai.prompts import SYSTEM_COMPARISON_PROMPT, COMPARISON_USER_PROMPT_TEMPLATE
 
-DISCLAIMER = "LegalLens provides informational assistance and does not replace professional legal advice."
+DISCLAIMER = (
+    "LegalLens provides informational assistance and does not replace professional legal advice."
+)
 _MAX_DIFFERENCES = 12
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r'[^a-z0-9 ]', '', (text or '').lower()).strip()
+    return re.sub(r"[^a-z0-9 ]", "", (text or "").lower()).strip()
 
 
 def _category_for(section: str, title: str) -> str:
@@ -48,7 +50,9 @@ class ComparisonService:
     """
 
     @classmethod
-    async def compare_documents(cls, user_id: str, doc_a_id: str, doc_b_id: str) -> DocumentComparison:
+    async def compare_documents(
+        cls, user_id: str, doc_a_id: str, doc_b_id: str
+    ) -> DocumentComparison:
         # Local import avoids a circular dependency with document_service.
         from app.services.document_service import DocumentManager
 
@@ -72,26 +76,48 @@ class ComparisonService:
             for api_key in gemini_key_manager.iter_keys():
                 try:
                     result = await cls._call_gemini_api(
-                        user_id, doc_a_id, name_a, entry_a, analysis_a,
-                        doc_b_id, name_b, entry_b, analysis_b, api_key,
+                        user_id,
+                        doc_a_id,
+                        name_a,
+                        entry_a,
+                        analysis_a,
+                        doc_b_id,
+                        name_b,
+                        entry_b,
+                        analysis_b,
+                        api_key,
                     )
                     if result:
                         gemini_key_manager.report_success(api_key)
-                        logger.info(f"Gemini comparison generated for '{doc_a_id}' vs '{doc_b_id}'.")
+                        logger.info(
+                            f"Gemini comparison generated for '{doc_a_id}' vs '{doc_b_id}'."
+                        )
                         return result
-                    logger.warning("Gemini comparison returned no result; trying next key if available.")
+                    logger.warning(
+                        "Gemini comparison returned no result; trying next key if available."
+                    )
                 except Exception as e:
                     if gemini_key_manager.is_quota_error(e):
                         gemini_key_manager.report_quota_failure(api_key)
                         continue  # quota exhausted -> fail over to next key
-                    logger.error(f"Gemini comparison failed ({e}). Using grounded fallback comparison.")
+                    logger.error(
+                        f"Gemini comparison failed ({e}). Using grounded fallback comparison."
+                    )
                     break
             else:
-                logger.error("All Gemini API keys exhausted for comparison; using grounded fallback comparison.")
+                logger.error(
+                    "All Gemini API keys exhausted for comparison; using grounded fallback comparison."
+                )
 
         return cls._grounded_fallback_compare(
-            doc_a_id, name_a, entry_a, analysis_a,
-            doc_b_id, name_b, entry_b, analysis_b,
+            doc_a_id,
+            name_a,
+            entry_a,
+            analysis_a,
+            doc_b_id,
+            name_b,
+            entry_b,
+            analysis_b,
         )
 
     # ------------------------------------------------------------------
@@ -99,35 +125,52 @@ class ComparisonService:
     # ------------------------------------------------------------------
     @classmethod
     def _clause_digest(cls, entry: dict, analysis) -> str:
-        lines: List[str] = []
+        lines: list[str] = []
         if analysis and getattr(analysis, "important_clauses", None):
             for c in analysis.important_clauses:
-                lines.append(
-                    f"- [{c.section} | Page {c.page}] {c.title}: {c.summary}"
-                )
+                lines.append(f"- [{c.section} | Page {c.page}] {c.title}: {c.summary}")
             if getattr(analysis, "payments", None):
                 for p in analysis.payments:
-                    lines.append(f"- [Payment | Page {p.page}] {p.item}: {p.amount} ({p.frequency}, due {p.due_date})")
+                    lines.append(
+                        f"- [Payment | Page {p.page}] {p.item}: {p.amount} ({p.frequency}, due {p.due_date})"
+                    )
             if getattr(analysis, "obligations", None):
                 for ob in analysis.obligations:
-                    lines.append(f"- [Obligation | Page {ob.page}] {ob.party}: {ob.obligation} (deadline: {ob.deadline})")
+                    lines.append(
+                        f"- [Obligation | Page {ob.page}] {ob.party}: {ob.obligation} (deadline: {ob.deadline})"
+                    )
         else:
             extracted = entry.get("extracted", {})
             for c in (extracted.get("clauses") or [])[:20]:
                 title = c.get("title") or (c.get("text") or "")[:60]
-                lines.append(f"- [{c.get('section', 'General')} | Page {c.get('page', 1)}] {title}: {(c.get('text') or '')[:220]}")
+                lines.append(
+                    f"- [{c.get('section', 'General')} | Page {c.get('page', 1)}] {title}: {(c.get('text') or '')[:220]}"
+                )
             if not lines:
                 for s in (extracted.get("sections") or [])[:10]:
-                    lines.append(f"- [{s.get('title', 'General')}] Section present (pages {s.get('start_page', 1)}-{s.get('end_page', 1)})")
-        return "\n".join(lines) if lines else "(No clause structure could be extracted from this document.)"
+                    lines.append(
+                        f"- [{s.get('title', 'General')}] Section present (pages {s.get('start_page', 1)}-{s.get('end_page', 1)})"
+                    )
+        return (
+            "\n".join(lines)
+            if lines
+            else "(No clause structure could be extracted from this document.)"
+        )
 
     @classmethod
     async def _call_gemini_api(
-        cls, user_id: str,
-        doc_a_id: str, name_a: str, entry_a: dict, analysis_a,
-        doc_b_id: str, name_b: str, entry_b: dict, analysis_b,
+        cls,
+        user_id: str,
+        doc_a_id: str,
+        name_a: str,
+        entry_a: dict,
+        analysis_a,
+        doc_b_id: str,
+        name_b: str,
+        entry_b: dict,
+        analysis_b,
         api_key: str,
-    ) -> Optional[DocumentComparison]:
+    ) -> DocumentComparison | None:
         try:
             from google import genai
             from google.genai import types
@@ -170,8 +213,15 @@ class ComparisonService:
     # ------------------------------------------------------------------
     @classmethod
     def _grounded_fallback_compare(
-        cls, doc_a_id: str, name_a: str, entry_a: dict, analysis_a,
-        doc_b_id: str, name_b: str, entry_b: dict, analysis_b,
+        cls,
+        doc_a_id: str,
+        name_a: str,
+        entry_a: dict,
+        analysis_a,
+        doc_b_id: str,
+        name_b: str,
+        entry_b: dict,
+        analysis_b,
     ) -> DocumentComparison:
         clauses_a = list(getattr(analysis_a, "important_clauses", None) or []) if analysis_a else []
         clauses_b = list(getattr(analysis_b, "important_clauses", None) or []) if analysis_b else []
@@ -182,9 +232,11 @@ class ComparisonService:
         if not clauses_b:
             clauses_b = cls._sections_as_clauses(entry_b)
 
-        index_b = {_normalize(c.title if hasattr(c, "title") else c.get("title", "")): c for c in clauses_b}
+        index_b = {
+            _normalize(c.title if hasattr(c, "title") else c.get("title", "")): c for c in clauses_b
+        }
         matched_b = set()
-        differences: List[ComparisonDifference] = []
+        differences: list[ComparisonDifference] = []
 
         def _title(c) -> str:
             return c.title if hasattr(c, "title") else c.get("title", "Untitled provision")
@@ -205,76 +257,105 @@ class ComparisonService:
             key = _normalize(_title(c_a))
             c_b = index_b.get(key)
             if c_b is None:
-                differences.append(ComparisonDifference(
-                    clause_title=_title(c_a),
-                    contract_a=f"Present in '{name_a}' ({_section(c_a)}, Page {_page(c_a)}): {_summary(c_a)[:220]}",
-                    contract_b=f"No matching provision was identified in '{name_b}'.",
-                    difference_type="Removed",
-                    attention_level="medium",
-                    category=_category_for(_section(c_a), _title(c_a)),
-                    ai_explanation=(
-                        f"This topic appears in '{name_a}' but was not identified in '{name_b}'. "
-                        "Consider reviewing whether the protection or obligation it describes still applies to you."
-                    ),
-                ))
+                differences.append(
+                    ComparisonDifference(
+                        clause_title=_title(c_a),
+                        contract_a=f"Present in '{name_a}' ({_section(c_a)}, Page {_page(c_a)}): {_summary(c_a)[:220]}",
+                        contract_b=f"No matching provision was identified in '{name_b}'.",
+                        difference_type="Removed",
+                        attention_level="medium",
+                        category=_category_for(_section(c_a), _title(c_a)),
+                        ai_explanation=(
+                            f"This topic appears in '{name_a}' but was not identified in '{name_b}'. "
+                            "Consider reviewing whether the protection or obligation it describes still applies to you."
+                        ),
+                    )
+                )
             else:
                 matched_b.add(key)
                 if _normalize(_summary(c_a)) == _normalize(_summary(c_b)):
                     if len([d for d in differences if d.difference_type == "Unchanged"]) < 2:
-                        differences.append(ComparisonDifference(
-                            clause_title=_title(c_a),
-                            contract_a=_summary(c_a)[:220],
-                            contract_b=_summary(c_b)[:220],
-                            difference_type="Unchanged",
-                            attention_level="informational",
-                            category=_category_for(_section(c_a), _title(c_a)),
-                            ai_explanation="This provision reads the same in both documents.",
-                        ))
+                        differences.append(
+                            ComparisonDifference(
+                                clause_title=_title(c_a),
+                                contract_a=_summary(c_a)[:220],
+                                contract_b=_summary(c_b)[:220],
+                                difference_type="Unchanged",
+                                attention_level="informational",
+                                category=_category_for(_section(c_a), _title(c_a)),
+                                ai_explanation="This provision reads the same in both documents.",
+                            )
+                        )
                 else:
                     cat = _category_for(_section(c_a), _title(c_a))
-                    differences.append(ComparisonDifference(
-                        clause_title=_title(c_a),
-                        contract_a=_summary(c_a)[:220] or f"Present in '{name_a}'.",
-                        contract_b=_summary(c_b)[:220] or f"Present in '{name_b}'.",
-                        difference_type="Changed",
-                        attention_level="high" if cat in ("Payment", "Termination", "Liability") else "medium",
-                        category=cat,
-                        ai_explanation=(
-                            f"The wording of this provision differs between '{name_a}' and '{name_b}'. "
-                            "Compare the quoted summaries and consider reviewing the change before signing."
-                        ),
-                    ))
+                    differences.append(
+                        ComparisonDifference(
+                            clause_title=_title(c_a),
+                            contract_a=_summary(c_a)[:220] or f"Present in '{name_a}'.",
+                            contract_b=_summary(c_b)[:220] or f"Present in '{name_b}'.",
+                            difference_type="Changed",
+                            attention_level="high"
+                            if cat in ("Payment", "Termination", "Liability")
+                            else "medium",
+                            category=cat,
+                            ai_explanation=(
+                                f"The wording of this provision differs between '{name_a}' and '{name_b}'. "
+                                "Compare the quoted summaries and consider reviewing the change before signing."
+                            ),
+                        )
+                    )
 
         for key, c_b in index_b.items():
             if key not in matched_b:
-                differences.append(ComparisonDifference(
-                    clause_title=_title(c_b),
-                    contract_a=f"No matching provision was identified in '{name_a}'.",
-                    contract_b=f"Present in '{name_b}' ({_section(c_b)}, Page {_page(c_b)}): {_summary(c_b)[:220]}",
-                    difference_type="Added",
-                    attention_level="medium",
-                    category=_category_for(_section(c_b), _title(c_b)),
-                    ai_explanation=(
-                        f"This is a new topic in '{name_b}' with no counterpart in '{name_a}'. "
-                        "Consider reviewing what new duty, cost, or restriction it introduces."
-                    ),
-                ))
+                differences.append(
+                    ComparisonDifference(
+                        clause_title=_title(c_b),
+                        contract_a=f"No matching provision was identified in '{name_a}'.",
+                        contract_b=f"Present in '{name_b}' ({_section(c_b)}, Page {_page(c_b)}): {_summary(c_b)[:220]}",
+                        difference_type="Added",
+                        attention_level="medium",
+                        category=_category_for(_section(c_b), _title(c_b)),
+                        ai_explanation=(
+                            f"This is a new topic in '{name_b}' with no counterpart in '{name_a}'. "
+                            "Consider reviewing what new duty, cost, or restriction it introduces."
+                        ),
+                    )
+                )
 
         # Payment-level deltas for the summary counters.
-        payments_a = {_normalize(p.item): p.amount for p in (getattr(analysis_a, "payments", None) or [])} if analysis_a else {}
-        payments_b = {_normalize(p.item): p.amount for p in (getattr(analysis_b, "payments", None) or [])} if analysis_b else {}
+        payments_a = (
+            {_normalize(p.item): p.amount for p in (getattr(analysis_a, "payments", None) or [])}
+            if analysis_a
+            else {}
+        )
+        payments_b = (
+            {_normalize(p.item): p.amount for p in (getattr(analysis_b, "payments", None) or [])}
+            if analysis_b
+            else {}
+        )
         payment_changes = sum(
-            1 for item in set(payments_a) | set(payments_b)
+            1
+            for item in set(payments_a) | set(payments_b)
             if payments_a.get(item) != payments_b.get(item)
         )
 
-        obligations_a = {_normalize(ob.obligation) for ob in (getattr(analysis_a, "obligations", None) or [])} if analysis_a else set()
-        obligations_b = {_normalize(ob.obligation) for ob in (getattr(analysis_b, "obligations", None) or [])} if analysis_b else set()
+        obligations_a = (
+            {_normalize(ob.obligation) for ob in (getattr(analysis_a, "obligations", None) or [])}
+            if analysis_a
+            else set()
+        )
+        obligations_b = (
+            {_normalize(ob.obligation) for ob in (getattr(analysis_b, "obligations", None) or [])}
+            if analysis_b
+            else set()
+        )
         new_obligations = len(obligations_b - obligations_a)
 
         changed = [d for d in differences if d.difference_type == "Changed"]
         summary = ComparisonSummary(
-            total_changed=len([d for d in differences if d.difference_type in ("Added", "Removed", "Changed")]),
+            total_changed=len(
+                [d for d in differences if d.difference_type in ("Added", "Removed", "Changed")]
+            ),
             new_obligations=new_obligations,
             payment_changes=payment_changes,
             wording_changes=len(changed),
@@ -296,10 +377,12 @@ class ComparisonService:
         pseudo = []
         extracted = entry.get("extracted", {}) or {}
         for s in (extracted.get("sections") or [])[:15]:
-            pseudo.append({
-                "title": s.get("title", "Section"),
-                "text": s.get("title", "Section"),
-                "section": s.get("title", "General"),
-                "page": s.get("start_page", 1),
-            })
+            pseudo.append(
+                {
+                    "title": s.get("title", "Section"),
+                    "text": s.get("title", "Section"),
+                    "section": s.get("title", "General"),
+                    "page": s.get("start_page", 1),
+                }
+            )
         return pseudo

@@ -1,9 +1,11 @@
 import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Absolute backend directory so env files, uploads and data resolve
 # correctly regardless of the process working directory.
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -15,7 +17,7 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     PORT: int = 8000
     FRONTEND_ORIGIN: str = "http://localhost:3000"
-    
+
     # Gemini API Configuration.
     # Single key (backward compatible) and/or numbered keys GEMINI_API_KEY_2,
     # GEMINI_API_KEY_3, ... The backend rotates through all configured keys
@@ -27,9 +29,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.6-flash"
 
     # Firebase Configuration (resolved to an absolute path below)
-    FIREBASE_SERVICE_ACCOUNT_JSON: str = os.path.join(
-        _BACKEND_DIR, "firebase-service-account.json"
-    )
+    FIREBASE_SERVICE_ACCOUNT_JSON: str = os.path.join(_BACKEND_DIR, "firebase-service-account.json")
 
     # Auth mode:
     #   "auto" (default) -> strict token verification when Firebase is configured;
@@ -40,11 +40,11 @@ class Settings(BaseSettings):
     DEV_USER_ID: str = "usr-legallens-dev"
     DEV_USER_EMAIL: str = "dev@legallens.ai"
     DEV_USER_NAME: str = "LegalLens Dev User"
-    
+
     # Upload Storage (absolute, normalised paths)
     UPLOAD_DIR: str = os.path.join(_BACKEND_DIR, "uploads")
     DATA_DIR: str = os.path.join(_BACKEND_DIR, "data")
-    MAX_FILE_SIZE_BYTES: int = 20 * 1024 * 1024 # 20MB limit
+    MAX_FILE_SIZE_BYTES: int = 20 * 1024 * 1024  # 20MB limit
 
     # Storage backend:
     #   "local" (default) -> on-disk db.json, uploads/, embedded Qdrant.
@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_MAX_REQUESTS: int = 120
     RATE_LIMIT_WINDOW_SECONDS: int = 60
+
 
 settings = Settings()
 
@@ -106,6 +107,7 @@ def get_gemini_keys() -> list:
 
 def is_gemini_configured() -> bool:
     return bool(get_gemini_keys())
+
 
 def is_cloud_mode() -> bool:
     """True when persistence must go through Firebase (Vercel serverless).

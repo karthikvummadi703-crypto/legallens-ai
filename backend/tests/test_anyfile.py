@@ -2,10 +2,10 @@
 
 import os
 import unittest
+from types import SimpleNamespace
 
 from app.services.extraction_service import DocumentExtractionService
-from app.utils.file_utils import validate_uploaded_file, ALLOWED_EXTENSIONS
-from types import SimpleNamespace
+from app.utils.file_utils import ALLOWED_EXTENSIONS, validate_uploaded_file
 
 
 def _write(path, body):
@@ -74,9 +74,7 @@ class TestAnyFileSupport(unittest.TestCase):
             validate_uploaded_file(_fake_upload("evil.exe", b"xx"), b"xx")
 
     def test_new_types_validate(self):
-        self.assertEqual(
-            validate_uploaded_file(_fake_upload("a.md", b"x"), b"# hi"), ".md"
-        )
+        self.assertEqual(validate_uploaded_file(_fake_upload("a.md", b"x"), b"# hi"), ".md")
         self.assertEqual(
             validate_uploaded_file(_fake_upload("a.html", b"x"), b"<p>hi</p>"),
             ".html",
