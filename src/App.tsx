@@ -132,6 +132,7 @@ export default function App() {
         }
         sessionRestoredRef.current = true;
         resumedStoredRef.current = false;
+        setAuthReady(true); // session resolved -> data fetches below may run
         setCurrentUser(user);
         setAppStage('workspace');
         setCurrentView('chat');
@@ -140,11 +141,14 @@ export default function App() {
         // that effect fired with the storage-restored user (no token yet, 401),
         // and when the SAME user re-resolves here its deps don't change.
         refreshDocuments();
-      } else if (resumedStoredRef.current) {
-        // Resumed workspace from storage but Firebase has no valid session
-        // (signed out elsewhere / expired) -> fall back to intro, not splash.
-        resumedStoredRef.current = false;
-        setAppStage('intro');
+      } else {
+        setAuthReady(true); // no session -> nothing to load, but stop waiting
+        if (resumedStoredRef.current) {
+          // Resumed workspace from storage but Firebase has no valid session
+          // (signed out elsewhere / expired) -> fall back to intro, not splash.
+          resumedStoredRef.current = false;
+          setAppStage('intro');
+        }
       }
     });
     return unsubscribe;
@@ -169,47 +173,45 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    refreshDocuments();
-  }, []);
-
   // Track last_uid to detect account switches (different email/Google on same browser)
   const lastUidRef = useRef<string>('');
   // Reload when authenticated user changes (login / session restore) and sync chats
   useEffect(() => {
-    if (currentUser.email) {
-      const uid = currentUser.id || currentUser.email;
-      // Account switch: wipe previous user's docs/chats/selection first
-      if (lastUidRef.current && lastUidRef.current !== uid) {
-        setDocuments([]);
-        setSelectedDocument(null);
-        setChatSessions([]);
-        setActiveChatId(undefined);
-        import('./views/AskLegalLensPage').then(({ clearTranscriptCache }) => {
-          try { clearTranscriptCache(); } catch { /* ignore */ }
-        });
-      }
-      lastUidRef.current = uid;
-      refreshDocuments();
-      // Also sync chat history from backend (Chats are per-user, documents are not Chat-local)
-      import('./services/chatService').then(({ chatService }) => {
-        chatService.listConversations().then((convos) => {
-          if (convos.length > 0 && chatSessions.length === 0) {
-            const mapped: ChatSession[] = convos.slice(0, 20).map((c) => ({
-              id: c.conversation_id,
-              documentId: c.document_id || undefined,
-              conversationId: c.conversation_id,
-              title: c.preview ? c.preview.slice(0, 40) : (c.document_id ? `Chat: ${c.document_id}` : 'LegalLens Chat'),
-              updatedAt: 'Just now',
-              timeframe: 'Today',
-            }));
-            setChatSessions(mapped);
-            if (!activeChatId && mapped.length > 0) setActiveChatId(mapped[0].id);
-          }
-        });
+    // Wait for the Firebase session to resolve first (hard refresh restores the
+    // stored user instantly but the real token arrives asynchronously; fetching
+    // before that is a guaranteed 401 that never re-fires for the same user).
+    if (!currentUser.email || !authReady) return;
+    const uid = currentUser.id || currentUser.email;
+    // Account switch: wipe previous user's docs/chats/selection first
+    if (lastUidRef.current && lastUidRef.current !== uid) {
+      setDocuments([]);
+      setSelectedDocument(null);
+      setChatSessions([]);
+      setActiveChatId(undefined);
+      import('./views/AskLegalLensPage').then(({ clearTranscriptCache }) => {
+        try { clearTranscriptCache(); } catch { /* ignore */ }
       });
     }
-  }, [currentUser.email, currentUser.id]);
+    lastUidRef.current = uid;
+    refreshDocuments();
+    // Also sync chat history from backend (Chats are per-user, documents are not Chat-local)
+    import('./services/chatService').then(({ chatService }) => {
+      chatService.listConversations().then((convos) => {
+        if (convos.length > 0 && chatSessions.length === 0) {
+          const mapped: ChatSession[] = convos.slice(0, 20).map((c) => ({
+            id: c.conversation_id,
+            documentId: c.document_id || undefined,
+            conversationId: c.conversation_id,
+            title: c.preview ? c.preview.slice(0, 40) : (c.document_id ? `Chat: ${c.document_id}` : 'LegalLens Chat'),
+            updatedAt: 'Just now',
+            timeframe: 'Today',
+          }));
+          setChatSessions(mapped);
+          if (!activeChatId && mapped.length > 0) setActiveChatId(mapped[0].id);
+        }
+      });
+    });
+  }, [currentUser.email, currentUser.id, authReady]);
 
   const handleSelectDocument = (doc: LegalDocument) => {
     setSelectedDocument(doc);

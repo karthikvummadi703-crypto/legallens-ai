@@ -81,7 +81,32 @@ export const AskLegalLensPage: React.FC<AskLegalLensPageProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Live transcript length for this mounted chat (updated by the cache
+  // effect below). Used to detect a mid-session conversationSeed bind so we
+  // never re-restore (and clobber) a transcript that is already on screen.
+  const messagesLenRef = useRef<number>(messages.length);
+
+  // Tracks the previous mount effect inputs across re-renders.
+  const prevSeedRef = useRef<string | undefined>(conversationSeed);
+  const prevDocRef = useRef<string | null | undefined>(document?.id);
+  const prevChatKeyRef = useRef<string | undefined>(chatKey);
+
   useEffect(() => {
+    // Capture inputs once for this run and advance the refs immediately so
+    // every return path below stays consistent.
+    const effectSeed = conversationSeed;
+    const effectDoc = document?.id;
+    const effectChat = chatKey;
+    const seedBoundMidChat =
+      !!effectSeed &&
+      prevSeedRef.current !== effectSeed &&
+      prevDocRef.current === effectDoc &&
+      prevChatKeyRef.current === effectChat &&
+      messagesLenRef.current > 0;
+    prevSeedRef.current = effectSeed;
+    prevDocRef.current = effectDoc;
+    prevChatKeyRef.current = effectChat;
+
     // Serve the cached transcript instantly on remount; it is identical to
     // what the restore below would fetch, so skip the network round-trip.
     // Key includes userId so different emails/Google accounts never share cache.
@@ -90,6 +115,15 @@ export const AskLegalLensPage: React.FC<AskLegalLensPageProps> = ({
     if (cached && cached.length > 0) {
       setMessages(cached);
       if (conversationSeed) setConversationId(conversationSeed);
+      return;
+    }
+    // Mid-chat conversationSeed bind (first reply just assigned the backend
+    // conversationId): the on-screen transcript is already correct — adopt
+    // the seed without re-restoring from the server (which could wipe an
+    // in-flight second message).
+    if (seedBoundMidChat) {
+      setConversationId(effectSeed);
+      setAnalysisData(null);
       return;
     }
     // ChatGPT-style: conversationId is the source of truth for history;
@@ -159,6 +193,7 @@ export const AskLegalLensPage: React.FC<AskLegalLensPageProps> = ({
 
   // Persist every transcript update so remounts restore instantly.
   useEffect(() => {
+    messagesLenRef.current = messages.length;
     transcriptCache.set(transcriptKey(chatKey, document?.id, conversationSeed, userId), messages);
   }, [messages, chatKey, document?.id, conversationSeed, userId]);
 
