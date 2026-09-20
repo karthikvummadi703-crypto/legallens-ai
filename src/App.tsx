@@ -382,6 +382,12 @@ export default function App() {
   // Render Main Workspace Shell (ChatGPT Style Interface)
   return (
     <div id="legallens-app-root" className="min-h-screen bg-[#05070c] text-slate-100 flex flex-col selection:bg-indigo-500/30">
+      <a
+        href="#legallens-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-indigo-600 focus:text-white focus:text-xs focus:font-semibold"
+      >
+        Skip to content
+      </a>
       <div className="flex-1 flex overflow-hidden">
         {/* Simplified ChatGPT-style Sidebar */}
         <Sidebar
@@ -423,7 +429,11 @@ export default function App() {
           />
 
           {/* Active View Container */}
-          <main className="flex-1 overflow-hidden bg-gradient-to-b from-[#05070c] via-[#070a12] to-[#05070c]">
+          <main
+            id="legallens-main"
+            tabIndex={-1}
+            className="flex-1 overflow-hidden bg-gradient-to-b from-[#05070c] via-[#070a12] to-[#05070c] outline-none"
+          >
             {currentView === 'chat' && (
               <AskLegalLensPage
                 document={selectedDocument}

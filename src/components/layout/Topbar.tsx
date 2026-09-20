@@ -90,6 +90,8 @@ export const Topbar: React.FC<TopbarProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowDocDropdown(!showDocDropdown)}
+            aria-haspopup="listbox"
+            aria-expanded={showDocDropdown}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 transition-all cursor-pointer group"
           >
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
@@ -118,6 +120,7 @@ export const Topbar: React.FC<TopbarProps> = ({
                         onSelectDocument(doc);
                         setShowDocDropdown(false);
                       }}
+                      aria-current={activeDocument && doc.id === activeDocument.id ? 'true' : undefined}
                       className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors ${
                         activeDocument && doc.id === activeDocument.id 
                           ? 'bg-indigo-600/20 text-indigo-300 font-semibold border border-indigo-500/30' 
@@ -165,6 +168,7 @@ export const Topbar: React.FC<TopbarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search clauses, terms, risks"
             placeholder="Search clauses, terms, risks (e.g. 'arbitration', 'clawback')..."
             className="w-full pl-9 pr-4 py-1.5 text-xs rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-all"
           />
@@ -190,6 +194,8 @@ export const Topbar: React.FC<TopbarProps> = ({
             onClick={() => setShowNotifications(!showNotifications)}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors relative"
             aria-label="View notifications"
+            aria-haspopup="dialog"
+            aria-expanded={showNotifications}
           >
             <Bell className="w-4 h-4" />
             <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-[#080b11]" />
@@ -232,8 +238,17 @@ export const Topbar: React.FC<TopbarProps> = ({
         </div>
 
         {/* User Profile Pill */}
-        <div 
+<div
           onClick={onNavigateToSettings}
+          role="button"
+          tabIndex={0}
+          aria-label="Open account settings"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onNavigateToSettings();
+            }
+          }}
           className="flex items-center gap-2.5 pl-2 py-1 pr-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/80 cursor-pointer transition-all"
           title="Account Settings"
         >

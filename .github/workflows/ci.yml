@@ -24,6 +24,8 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Frontend tests (Vitest)
+        run: npm test
       - name: Lint (ruff)
         working-directory: backend
         run: |

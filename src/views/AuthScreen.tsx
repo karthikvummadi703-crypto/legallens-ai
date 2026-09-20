@@ -207,10 +207,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'signup' && (
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Full Name</label>
+              <label htmlFor="auth-name" className="text-xs font-semibold text-slate-300">Full Name</label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  id="auth-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -223,10 +224,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300">Work Email</label>
+            <label htmlFor="auth-email" className="text-xs font-semibold text-slate-300">Work Email</label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
+                id="auth-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -240,7 +242,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {mode !== 'forgot' && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-300">Password</label>
+                <label htmlFor="auth-password" className="text-xs font-semibold text-slate-300">Password</label>
                 {mode === 'login' && (
                   <button
                     type="button"
@@ -257,6 +259,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  id="auth-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -281,10 +284,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           {mode === 'signup' && (
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Confirm Password</label>
+              <label htmlFor="auth-confirm" className="text-xs font-semibold text-slate-300">Confirm Password</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  id="auth-confirm"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}

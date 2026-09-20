@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     PORT: int = 8000
     FRONTEND_ORIGIN: str = "http://localhost:3000"
+    # Comma-separated additional allowed CORS origins (beyond FRONTEND_ORIGIN),
+    # e.g. a staging mirror. Used to tighten cross-origin access in cloud mode
+    # where the wildcard *.vercel.app regex would otherwise be too broad.
+    CORS_ALLOWED_ORIGINS: str = ""
 
     # Gemini API Configuration.
     # Single key (backward compatible) and/or numbered keys GEMINI_API_KEY_2,

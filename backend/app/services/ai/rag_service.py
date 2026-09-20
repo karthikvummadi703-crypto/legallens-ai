@@ -417,7 +417,7 @@ class RAGService:
                 )
 
         # 3. Retrieve Recent Conversation History
-        chat_history = cls.get_conversation_history(user_id, document_id, conversation_id)
+        # (reuses the history fetched for query expansion above)
         history_text = cls._format_chat_history(chat_history)
 
         # 4. Check if retrieved chunks are sufficient. Strict isolation:
@@ -702,7 +702,7 @@ class RAGService:
                 user_id=user_id, query_vector=query_vector, top_k=cls.CROSS_DOC_TOP_K
             )
         # If still empty, honest fallback
-        chat_history = cls.get_conversation_history(user_id, None, conversation_id)
+        # (reuses the history fetched for query expansion above)
         history_text = cls._format_chat_history(chat_history)
         if not retrieved_chunks:
             from app.services.ai.general_chat_service import GeneralChatService

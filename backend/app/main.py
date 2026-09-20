@@ -86,23 +86,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS setup for Vite / React frontend clients
-# allow_origin_regex covers localhost, 127.0.0.1 AND any LAN IP (e.g.
-# http://192.168.x.x:3000) because Vite binds --host=0.0.0.0 — a static
-# allow-list would reject the browser's preflight OPTIONS with 400 and
-# every authenticated request would fail. Cloud deployments (any *.vercel.app)
-# are also allowed so a separately-hosted frontend can reach the API.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=(
-        r"https?://([\w-]+\.)*vercel\.app|"
-        r"http://(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|0\.0\.0\.0|\[::1\])(:\d+)?"
-    ),
-    allow_origins=[settings.FRONTEND_ORIGIN],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS setup for Vite / React frontend clients.
+#
+# Local mode: allow_origin_regex covers localhost, 127.0.0.1 AND any LAN IP
+# (e.g. http://192.168.x.x:3000) because Vite binds --host=0.0.0.0 — a static
+# allow-list would reject the browser's preflight OPTIONS with 400 and every
+# authenticated request would fail.
+#
+# Cloud mode (Vercel): no wildcard. Only origins explicitly configured via
+# FRONTEND_ORIGIN / CORS_ALLOWED_ORIGINS are allowed, so the API cannot be
+# called with credentials from any arbitrary *.vercel.app site. Requests still
+# require a valid Firebase Bearer token.
+_cors_common = {
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if is_cloud_mode():
+    _explicit_origins = [
+        o.strip()
+        for o in ([settings.FRONTEND_ORIGIN] + (settings.CORS_ALLOWED_ORIGINS or "").split(","))
+        if o.strip()
+    ]
+    app.add_middleware(CORSMiddleware, allow_origins=_explicit_origins, **_cors_common)
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=(
+            r"https?://([\w-]+\.)*vercel\.app|"
+            r"http://(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|0\.0\.0\.0|\[::1\])(:\d+)?"
+        ),
+        allow_origins=[settings.FRONTEND_ORIGIN],
+        **_cors_common,
+    )
 
 # Rate limiting middleware (per-client IP, sliding window)
 app.add_middleware(

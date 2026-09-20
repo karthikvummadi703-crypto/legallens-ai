@@ -398,7 +398,13 @@ export const AskLegalLensPage: React.FC<AskLegalLensPageProps> = ({
       </div>
 
       {/* Main Chat Stream Container */}
-      <div className="flex-1 rounded-2xl bg-[#080b11]/80 border border-slate-800/80 p-4 sm:p-6 overflow-y-auto space-y-6 custom-scrollbar">
+      <div
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label="Conversation"
+        className="flex-1 rounded-2xl bg-[#080b11]/80 border border-slate-800/80 p-4 sm:p-6 overflow-y-auto space-y-6 custom-scrollbar"
+      >
         {messages.length === 0 ? (
           /* Empty Chat Welcome State */
           <div className="flex flex-col items-center justify-center min-h-full text-center p-4 sm:p-8 space-y-6">
@@ -707,6 +713,7 @@ export const AskLegalLensPage: React.FC<AskLegalLensPageProps> = ({
           className="relative flex items-end gap-2"
         >
           <textarea
+            aria-label={isGeneralChat ? 'Ask a legal question' : `Ask LegalLens about ${docName}`}
             value={inputQuery}
             onChange={(e) => setInputQuery(e.target.value)}
             onKeyDown={(e) => {

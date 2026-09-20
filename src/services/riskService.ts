@@ -1,26 +1,10 @@
 import { RiskItem } from '../types';
-import { auth } from '../lib/firebase';
-
-const API_BASE_URL = (((import.meta as any).env?.VITE_API_BASE_URL || '') as string).replace(/\/+$/, '') + '/api';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  if (auth.currentUser) {
-    try {
-      const token = await auth.currentUser.getIdToken();
-      headers['Authorization'] = `Bearer ${token}`;
-    } catch {
-      // Ignore
-    }
-  }
-  return headers;
-}
+import { apiFetch } from '../lib/http';
 
 export const riskService = {
   async getRisksForDocument(documentId: string): Promise<RiskItem[]> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analysis`, { headers });
+      const res = await apiFetch(`/documents/${encodeURIComponent(documentId)}/analysis`);
       if (res.ok) {
         const data = await res.json();
         if (data.potential_risks && Array.isArray(data.potential_risks)) {

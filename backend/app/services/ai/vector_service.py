@@ -6,6 +6,14 @@ from typing import Any
 from app.config import is_cloud_mode
 from app.core.logging import logger
 
+try:
+    import numpy as np
+
+    _HAS_NUMPY = True
+except Exception:  # pragma: no cover - numpy is an optional accelerator
+    np = None
+    _HAS_NUMPY = False
+
 COLLECTION_NAME = "legallens_legal_chunks"
 VECTOR_SIZE = 768
 
@@ -161,6 +169,99 @@ def _get_qdrant_client():
     return _qdrant_client
 
 
+def _result_dict(score: float, payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalise a Qdrant/in-memory hit into the public result shape."""
+    return {
+        "score": float(score),
+        "chunk_id": payload.get("chunk_id"),
+        "document_id": payload.get("document_id"),
+        "document_name": payload.get("document_name", ""),
+        "user_id": payload.get("user_id"),
+        "page_number": payload.get("page_number", 1),
+        "section": payload.get("section", "General"),
+        "clause_id": payload.get("clause_id", ""),
+        "text": payload.get("text", ""),
+    }
+
+
+def _qdrant_search_results(
+    client,
+    query_vector: list[float],
+    search_filter,
+    top_k: int,
+    document_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Run a Qdrant query (query_points or search API) and normalise results."""
+    if hasattr(client, "query_points"):
+        query_response = client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_vector,
+            query_filter=search_filter,
+            limit=top_k,
+        )
+        search_results = query_response.points
+    elif hasattr(client, "search"):
+        search_results = client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_vector,
+            query_filter=search_filter,
+            limit=top_k,
+        )
+    else:
+        search_results = []
+    results = []
+    for res in search_results:
+        payload = res.payload
+        # Enforce the document set client-side as a safety net when MatchAny
+        # is not honoured by the running Qdrant build.
+        if document_ids is not None and payload.get("document_id") not in document_ids:
+            continue
+        results.append(_result_dict(res.score, payload))
+    return results
+
+
+def _memory_search(
+    user_id: str,
+    query_vector: list[float],
+    top_k: int,
+    document_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Cosine similarity over the in-memory fallback store with strict ownership filtering.
+
+    The search is vectorised with numpy when available (keeping tie order
+    deterministic via a stable sort) and falls back to pure-Python math
+    otherwise, so results are identical either way.
+    """
+    _load_memory_snapshot()
+    candidates = [
+        (c_id, entry)
+        for c_id, entry in _in_memory_store.items()
+        if entry["payload"].get("user_id") == user_id
+        and (document_ids is None or entry["payload"].get("document_id") in document_ids)
+    ]
+    if not candidates:
+        return []
+
+    if _HAS_NUMPY:
+        query = np.asarray(query_vector, dtype=np.float64)
+        matrix = np.array([entry["vector"] for _, entry in candidates], dtype=np.float64)
+        dots = matrix @ query
+        denom = np.linalg.norm(matrix, axis=1) * float(np.linalg.norm(query))
+        scores = np.zeros(len(candidates))
+        np.divide(dots, denom, out=scores, where=denom != 0)
+        order = np.argsort(-scores, kind="stable")
+        return [
+            _result_dict(float(scores[idx]), candidates[idx][1]["payload"]) for idx in order[:top_k]
+        ]
+
+    scored = [
+        (_py_cosine_similarity(query_vector, entry["vector"]), entry["payload"])
+        for _, entry in candidates
+    ]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [_result_dict(score, payload) for score, payload in scored[:top_k]]
+
+
 class VectorDatabaseService:
     """
     Phase 4: Qdrant Vector Database Service Layer Abstraction.
@@ -257,43 +358,7 @@ class VectorDatabaseService:
                         FieldCondition(key="document_id", match=MatchValue(value=document_id)),
                     ]
                 )
-
-                # Execute Qdrant search (supporting query_points and search APIs)
-                if hasattr(client, "query_points"):
-                    query_response = client.query_points(
-                        collection_name=COLLECTION_NAME,
-                        query=query_vector,
-                        query_filter=search_filter,
-                        limit=top_k,
-                    )
-                    search_results = query_response.points
-                elif hasattr(client, "search"):
-                    search_results = client.search(
-                        collection_name=COLLECTION_NAME,
-                        query_vector=query_vector,
-                        query_filter=search_filter,
-                        limit=top_k,
-                    )
-                else:
-                    search_results = []
-
-                results = []
-                for res in search_results:
-                    payload = res.payload
-                    results.append(
-                        {
-                            "score": float(res.score),
-                            "chunk_id": payload.get("chunk_id"),
-                            "document_id": payload.get("document_id"),
-                            "document_name": payload.get("document_name", ""),
-                            "user_id": payload.get("user_id"),
-                            "page_number": payload.get("page_number", 1),
-                            "section": payload.get("section", "General"),
-                            "clause_id": payload.get("clause_id", ""),
-                            "text": payload.get("text", ""),
-                        }
-                    )
-
+                results = _qdrant_search_results(client, query_vector, search_filter, top_k)
                 logger.info(
                     f"Qdrant Search: Retrieved {len(results)} chunks for doc {document_id} (User: {user_id})."
                 )
@@ -301,36 +366,11 @@ class VectorDatabaseService:
             except Exception as e:
                 logger.error(f"Qdrant search error ({e}). Using in-memory fallback search.")
 
-        # Fallback numpy/cosine similarity search with ownership filtering
-        scored_chunks = []
-        for _c_id, entry in _in_memory_store.items():
-            payload = entry["payload"]
-            # Enforce strict ownership check
-            if payload.get("user_id") == user_id and payload.get("document_id") == document_id:
-                score = cls._cosine_similarity(query_vector, entry["vector"])
-                scored_chunks.append((score, payload))
-
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        top_results = []
-        for score, payload in scored_chunks[:top_k]:
-            top_results.append(
-                {
-                    "score": score,
-                    "chunk_id": payload["chunk_id"],
-                    "document_id": payload["document_id"],
-                    "document_name": payload.get("document_name", ""),
-                    "user_id": payload["user_id"],
-                    "page_number": payload["page_number"],
-                    "section": payload["section"],
-                    "clause_id": payload["clause_id"],
-                    "text": payload["text"],
-                }
-            )
-
+        results = _memory_search(user_id, query_vector, top_k, document_ids={document_id})
         logger.info(
-            f"In-Memory Vector Search: Retrieved {len(top_results)} chunks for doc {document_id}."
+            f"In-Memory Vector Search: Retrieved {len(results)} chunks for doc {document_id}."
         )
-        return top_results
+        return results
 
     @classmethod
     def search_user_chunks(
@@ -351,42 +391,7 @@ class VectorDatabaseService:
                 search_filter = Filter(
                     must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
                 )
-
-                if hasattr(client, "query_points"):
-                    query_response = client.query_points(
-                        collection_name=COLLECTION_NAME,
-                        query=query_vector,
-                        query_filter=search_filter,
-                        limit=top_k,
-                    )
-                    search_results = query_response.points
-                elif hasattr(client, "search"):
-                    search_results = client.search(
-                        collection_name=COLLECTION_NAME,
-                        query_vector=query_vector,
-                        query_filter=search_filter,
-                        limit=top_k,
-                    )
-                else:
-                    search_results = []
-
-                results = []
-                for res in search_results:
-                    payload = res.payload
-                    results.append(
-                        {
-                            "score": float(res.score),
-                            "chunk_id": payload.get("chunk_id"),
-                            "document_id": payload.get("document_id"),
-                            "document_name": payload.get("document_name", ""),
-                            "user_id": payload.get("user_id"),
-                            "page_number": payload.get("page_number", 1),
-                            "section": payload.get("section", "General"),
-                            "clause_id": payload.get("clause_id", ""),
-                            "text": payload.get("text", ""),
-                        }
-                    )
-
+                results = _qdrant_search_results(client, query_vector, search_filter, top_k)
                 logger.info(
                     f"Qdrant Cross-Doc Search: Retrieved {len(results)} chunks (User: {user_id})."
                 )
@@ -396,35 +401,11 @@ class VectorDatabaseService:
                     f"Qdrant cross-doc search error ({e}). Using in-memory fallback search."
                 )
 
-        # Fallback numpy/cosine similarity search with user-only ownership filtering
-        scored_chunks = []
-        for _c_id, entry in _in_memory_store.items():
-            payload = entry["payload"]
-            if payload.get("user_id") == user_id:
-                score = cls._cosine_similarity(query_vector, entry["vector"])
-                scored_chunks.append((score, payload))
-
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        top_results = []
-        for score, payload in scored_chunks[:top_k]:
-            top_results.append(
-                {
-                    "score": score,
-                    "chunk_id": payload["chunk_id"],
-                    "document_id": payload.get("document_id"),
-                    "document_name": payload.get("document_name", ""),
-                    "user_id": payload["user_id"],
-                    "page_number": payload["page_number"],
-                    "section": payload["section"],
-                    "clause_id": payload["clause_id"],
-                    "text": payload["text"],
-                }
-            )
-
+        results = _memory_search(user_id, query_vector, top_k)
         logger.info(
-            f"In-Memory Cross-Doc Search: Retrieved {len(top_results)} chunks (User: {user_id})."
+            f"In-Memory Cross-Doc Search: Retrieved {len(results)} chunks (User: {user_id})."
         )
-        return top_results
+        return results
 
     @classmethod
     def search_filtered_chunks(
@@ -440,6 +421,7 @@ class VectorDatabaseService:
             return cls.search_user_chunks(user_id, query_vector, top_k)
         # Normalise to unique
         document_ids = list(dict.fromkeys(document_ids))
+        wanted = set(document_ids)
         client = _get_qdrant_client()
         if client:
             try:
@@ -461,48 +443,13 @@ class VectorDatabaseService:
                         doc_condition,
                     ]
                 )
-                if hasattr(client, "query_points"):
-                    query_response = client.query_points(
-                        collection_name=COLLECTION_NAME,
-                        query=query_vector,
-                        query_filter=search_filter,
-                        limit=top_k,
-                    )
-                    search_results = query_response.points
-                elif hasattr(client, "search"):
-                    search_results = client.search(
-                        collection_name=COLLECTION_NAME,
-                        query_vector=query_vector,
-                        query_filter=search_filter,
-                        limit=top_k,
-                    )
-                else:
-                    search_results = []
-                results = []
-                for res in search_results:
-                    payload = res.payload
-                    # Enforce document_ids filter client-side as safety if MatchAny not honoured
-                    if payload.get("document_id") not in document_ids:
-                        continue
-                    results.append(
-                        {
-                            "score": float(res.score),
-                            "chunk_id": payload.get("chunk_id"),
-                            "document_id": payload.get("document_id"),
-                            "document_name": payload.get("document_name", ""),
-                            "user_id": payload.get("user_id"),
-                            "page_number": payload.get("page_number", 1),
-                            "section": payload.get("section", "General"),
-                            "clause_id": payload.get("clause_id", ""),
-                            "text": payload.get("text", ""),
-                        }
-                    )
+                results = _qdrant_search_results(
+                    client, query_vector, search_filter, top_k, document_ids=wanted
+                )
                 # If Qdrant returned nothing due to MatchAny issue, fallback to cross-doc + filter
                 if not results:
                     all_chunks = cls.search_user_chunks(user_id, query_vector, top_k * 3)
-                    results = [c for c in all_chunks if c.get("document_id") in document_ids][
-                        :top_k
-                    ]
+                    results = [c for c in all_chunks if c.get("document_id") in wanted][:top_k]
                 logger.info(
                     f"Qdrant Filtered Search: Retrieved {len(results)} chunks for docs {document_ids} (User: {user_id})."
                 )
@@ -512,45 +459,21 @@ class VectorDatabaseService:
                     f"Qdrant filtered search error ({e}). Using in-memory fallback search."
                 )
 
-        # Fallback in-memory: user + document_id IN
-        scored_chunks = []
-        wanted = set(document_ids)
-        for _c_id, entry in _in_memory_store.items():
-            payload = entry["payload"]
-            if payload.get("user_id") == user_id and payload.get("document_id") in wanted:
-                score = cls._cosine_similarity(query_vector, entry["vector"])
-                scored_chunks.append((score, payload))
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        if not scored_chunks:
+        results = _memory_search(user_id, query_vector, top_k, document_ids=wanted)
+        if not results:
             # Mirror the Qdrant path: broaden to the user-wide search, then
             # keep only the requested documents.
             broad = cls.search_user_chunks(user_id, query_vector, top_k * 3)
-            broad = [c for c in broad if c.get("document_id") in wanted][:top_k]
-            if broad:
+            results = [c for c in broad if c.get("document_id") in wanted][:top_k]
+            if results:
                 logger.info(
-                    f"In-Memory Filtered Search: Broadened to user-wide, kept {len(broad)} chunks for docs {document_ids}."
+                    f"In-Memory Filtered Search: Broadened to user-wide, kept {len(results)} chunks for docs {document_ids}."
                 )
-                return broad
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        top_results = []
-        for score, payload in scored_chunks[:top_k]:
-            top_results.append(
-                {
-                    "score": score,
-                    "chunk_id": payload["chunk_id"],
-                    "document_id": payload.get("document_id"),
-                    "document_name": payload.get("document_name", ""),
-                    "user_id": payload["user_id"],
-                    "page_number": payload["page_number"],
-                    "section": payload["section"],
-                    "clause_id": payload["clause_id"],
-                    "text": payload["text"],
-                }
-            )
+                return results
         logger.info(
-            f"In-Memory Filtered Search: Retrieved {len(top_results)} chunks for docs {document_ids}."
+            f"In-Memory Filtered Search: Retrieved {len(results)} chunks for docs {document_ids}."
         )
-        return top_results
+        return results
 
     @classmethod
     def delete_document_vectors(cls, user_id: str, document_id: str) -> bool:
@@ -646,9 +569,13 @@ class VectorDatabaseService:
 
     @staticmethod
     def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-        dot = sum(a * b for a, b in zip(vec_a, vec_b))
-        norm_a = math.sqrt(sum(a * a for a in vec_a))
-        norm_b = math.sqrt(sum(b * b for b in vec_b))
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
+        return _py_cosine_similarity(vec_a, vec_b)
+
+
+def _py_cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)

@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import uuid
 from datetime import datetime
 
@@ -24,11 +25,33 @@ DB_FILE_PATH = os.path.join(settings.DATA_DIR, "db.json")
 # Guard concurrent JSON DB reads/writes from multiple requests.
 _db_lock = threading.RLock()
 
+# Small in-process cache for the JSON DB. Each RAG/ask turn reads the DB
+# several times; parsing db.json on every read loaded it repeatedly. Reads are
+# served from cache for _DB_CACHE_TTL_SECONDS, and every save refreshes it
+# immediately. The cache is keyed by DB_FILE_PATH so switching paths (tests,
+# multiple DATA_DIRs) can never serve stale data, and writes from other
+# processes/workers are seen again once the TTL expires. Cloud (RTDB) mode is
+# intentionally NOT cached: each call still reads the live sections, so the
+# multi-instance serverless behaviour is unchanged.
+_db_cache: dict | None = None
+_DB_CACHE_TTL_SECONDS = 2.0
+
+
+def _reset_db_cache() -> None:
+    """Drop the in-memory cache (used by tests and path switches)."""
+    global _db_cache
+    _db_cache = None
+
 
 def _load_db() -> dict:
     if cloud_store.is_cloud_mode():
         return cloud_store.get_db_sections()
+    global _db_cache
     with _db_lock:
+        now = time.monotonic()
+        if _db_cache is not None and _db_cache["key"] == DB_FILE_PATH:
+            if now - _db_cache["ts"] <= _DB_CACHE_TTL_SECONDS:
+                return _db_cache["data"]
         if os.path.exists(DB_FILE_PATH):
             try:
                 with open(DB_FILE_PATH, encoding="utf-8") as f:
@@ -40,6 +63,7 @@ def _load_db() -> dict:
                         data["analyses"] = {}
                     if "conversations" not in data:
                         data["conversations"] = {}
+                    _db_cache = {"key": DB_FILE_PATH, "ts": now, "data": data}
                     return data
             except Exception as e:
                 # Never silently reset a corrupt DB (that would wipe every
@@ -61,12 +85,14 @@ def _save_db(data: dict):
     if cloud_store.is_cloud_mode():
         cloud_store.save_db_sections(data)
         return
+    global _db_cache
     with _db_lock:
         # Atomic write: crash during save can no longer truncate db.json.
         tmp_path = DB_FILE_PATH + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp_path, DB_FILE_PATH)
+        _db_cache = {"key": DB_FILE_PATH, "ts": time.monotonic(), "data": data}
 
 
 class DocumentManager:
@@ -286,7 +312,7 @@ class DocumentManager:
         """
         Builds an actionable pre-signing checklist from the stored document
         analysis. Returns an empty list when the document has not been
-        analyzed yet â€” never fabricated items.
+        analyzed yet — never fabricated items.
         """
         analysis = cls.get_document_analysis(doc_id, user_id)
         if not analysis:

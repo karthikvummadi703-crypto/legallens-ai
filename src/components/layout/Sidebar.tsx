@@ -113,6 +113,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={onToggleCollapse}
               className="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
               title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!isCollapsed}
             >
               {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
@@ -138,6 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className="w-full flex items-center justify-center p-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md cursor-pointer"
               title="New Chat"
+              aria-label="New Chat"
             >
               <Plus className="w-5 h-5" />
             </button>
@@ -157,6 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={onOpenUpload}
                   className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors"
                   title="Upload New Document"
+                  aria-label="Upload New Document"
                 >
                   <Upload className="w-3.5 h-3.5" />
                 </button>
@@ -172,6 +176,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 return (
                   <div
                     key={doc.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={isSelected ? 'true' : undefined}
+                    aria-label={
+                      isCollapsed
+                        ? `${doc.name} — ${statusLabel}`
+                        : `${doc.name}, ${statusLabel}`
+                    }
                     className={`group relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-indigo-600/20 text-white border border-indigo-500/50 font-medium'
@@ -181,6 +193,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onSelectDocument(doc);
                       onNavigate('chat');
                       if (onCloseMobile) onCloseMobile();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectDocument(doc);
+                        onNavigate('chat');
+                        if (onCloseMobile) onCloseMobile();
+                      }
                     }}
                     title={isCollapsed ? `${doc.name} · ${statusLabel}` : undefined}
                   >
@@ -201,6 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         }}
                         className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 rounded transition-opacity"
                         title="Delete Document"
+                        aria-label={`Delete ${doc.name}`}
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -210,8 +231,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               })}
 
               {documents.length === 0 && !isCollapsed && (
-                <div 
+                <div
                   onClick={onOpenUpload}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onOpenUpload();
+                    }
+                  }}
                   className="p-3 rounded-xl border border-dashed border-slate-800 hover:border-indigo-500/40 text-center text-xs text-slate-500 hover:text-indigo-300 cursor-pointer transition-colors"
                 >
                   + Upload your first document
@@ -241,6 +270,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onNavigate('chat');
                       if (onCloseMobile) onCloseMobile();
                     }}
+                    aria-current={isActive ? 'true' : undefined}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left truncate ${
                       isActive
                         ? 'bg-slate-800 text-white font-medium border border-slate-700'

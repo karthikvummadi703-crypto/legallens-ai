@@ -71,8 +71,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Your Full Name</label>
+              <label htmlFor="settings-name" className="text-xs font-medium text-slate-300">Your Full Name</label>
               <input
+                id="settings-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -81,8 +82,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Contact Email</label>
+              <label htmlFor="settings-email" className="text-xs font-medium text-slate-300">Contact Email</label>
               <input
+                id="settings-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

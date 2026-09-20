@@ -158,10 +158,11 @@ export const AuthActionHandler: React.FC<AuthActionHandlerProps> = ({ mode, oobC
               Choose a new password for your account, then sign in.
             </p>
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">New Password</label>
+              <label htmlFor="reset-password" className="text-xs font-semibold text-slate-300">New Password</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  id="reset-password"
                   type={showPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
@@ -183,10 +184,11 @@ export const AuthActionHandler: React.FC<AuthActionHandlerProps> = ({ mode, oobC
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Confirm New Password</label>
+              <label htmlFor="reset-confirm" className="text-xs font-semibold text-slate-300">Confirm New Password</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  id="reset-confirm"
                   type={showConfirm ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}

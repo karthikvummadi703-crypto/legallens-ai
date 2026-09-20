@@ -1,20 +1,5 @@
 import { ChatMessage, SourceReference } from '../types';
-import { auth } from '../lib/firebase';
-
-const API_BASE_URL = (((import.meta as any).env?.VITE_API_BASE_URL || '') as string).replace(/\/+$/, '') + '/api';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (auth.currentUser) {
-    try {
-      const token = await auth.currentUser.getIdToken();
-      headers['Authorization'] = `Bearer ${token}`;
-    } catch {
-      // Ignore token error in dev
-    }
-  }
-  return headers;
-}
+import { apiFetch } from '../lib/http';
 
 export interface ChatResponsePayload {
   response: string;
@@ -28,6 +13,25 @@ export interface FreeformChatPayload {
   sources: SourceReference[];
   followUps: string[];
   conversationId?: string;
+}
+
+interface BackendSource {
+  page?: number;
+  section?: string;
+  snippet?: string;
+  quote?: string;
+  document_id?: string;
+  document_name?: string;
+}
+
+function mapSources(sources: BackendSource[] | undefined): SourceReference[] {
+  return (sources || []).map((s) => ({
+    page: s.page || 1,
+    section: s.section || 'General',
+    quote: s.snippet || s.quote || '',
+    document_id: s.document_id,
+    document_name: s.document_name,
+  }));
 }
 
 function mapHistoryMessages(messages: any[]): ChatMessage[] {
@@ -46,14 +50,27 @@ function mapHistoryMessages(messages: any[]): ChatMessage[] {
   }));
 }
 
+const DEFAULT_LEGAL_FOLLOW_UPS = [
+  'What are my main obligations?',
+  'When can this contract be terminated?',
+  'Are there automatic renewal terms?',
+];
+
+const DEFAULT_FREEFORM_FOLLOW_UPS = [
+  'What should I check before signing a contract?',
+  'What are common risky clauses?',
+  'How do I negotiate better contract terms?',
+];
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
 export const chatService = {
   async getInitialMessages(documentId: string, conversationId?: string): Promise<ChatMessage[]> {
     try {
-      const headers = await getAuthHeaders();
       const url = conversationId
-        ? `${API_BASE_URL}/documents/${documentId}/conversations?conversation_id=${encodeURIComponent(conversationId)}`
-        : `${API_BASE_URL}/documents/${documentId}/conversations`;
-      const res = await fetch(url, { headers });
+        ? `/documents/${encodeURIComponent(documentId)}/conversations?conversation_id=${encodeURIComponent(conversationId)}`
+        : `/documents/${encodeURIComponent(documentId)}/conversations`;
+      const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
@@ -68,11 +85,10 @@ export const chatService = {
 
   async getGeneralHistory(conversationId?: string): Promise<{ conversationId?: string; messages: ChatMessage[] }> {
     try {
-      const headers = await getAuthHeaders();
       const url = conversationId
-        ? `${API_BASE_URL}/chat/history?conversation_id=${encodeURIComponent(conversationId)}`
-        : `${API_BASE_URL}/chat/history`;
-      const res = await fetch(url, { headers });
+        ? `/chat/history?conversation_id=${encodeURIComponent(conversationId)}`
+        : '/chat/history';
+      const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.messages && Array.isArray(data.messages)) {
@@ -87,8 +103,7 @@ export const chatService = {
 
   async listConversations(): Promise<Array<{ conversation_id: string; document_id?: string | null; preview: string; message_count: number; referenced_document_ids?: string[] }>> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/chat/conversations`, { headers });
+      const res = await apiFetch('/chat/conversations');
       if (res.ok) {
         const data = await res.json();
         return data.conversations || [];
@@ -105,13 +120,12 @@ export const chatService = {
     conversationId?: string,
     chatId?: string
   ): Promise<ChatResponsePayload> {
-    const headers = await getAuthHeaders();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat/query`, {
+      const res = await apiFetch('/chat/query', {
         method: 'POST',
-        headers,
+        headers: JSON_HEADERS,
         signal: controller.signal,
         body: JSON.stringify({
           question,
@@ -123,21 +137,10 @@ export const chatService = {
       clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json();
-        const sourcesMapped: SourceReference[] = (data.sources || []).map((s: any) => ({
-          page: s.page || 1,
-          section: s.section || 'General',
-          quote: s.snippet || s.quote || '',
-          document_id: s.document_id,
-          document_name: s.document_name,
-        }));
         return {
           response: data.answer,
-          sources: sourcesMapped,
-          followUps: data.followup_questions || [
-            'What are my main obligations?',
-            'When can this contract be terminated?',
-            'Are there automatic renewal terms?'
-          ],
+          sources: mapSources(data.sources),
+          followUps: data.followup_questions || DEFAULT_LEGAL_FOLLOW_UPS,
           conversationId: data.conversation_id,
         };
       }
@@ -154,15 +157,14 @@ export const chatService = {
   },
 
   async askLegalLens(
-    documentId: string, 
+    documentId: string,
     userQuery: string,
     conversationId?: string
   ): Promise<ChatResponsePayload> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents/${documentId}/chat`, {
+      const res = await apiFetch(`/documents/${encodeURIComponent(documentId)}/chat`, {
         method: 'POST',
-        headers,
+        headers: JSON_HEADERS,
         body: JSON.stringify({
           question: userQuery,
           conversation_id: conversationId,
@@ -171,22 +173,10 @@ export const chatService = {
 
       if (res.ok) {
         const data = await res.json();
-        const sourcesMapped: SourceReference[] = (data.sources || []).map((s: any) => ({
-          page: s.page || 1,
-          section: s.section || 'General',
-          quote: s.snippet || '',
-          document_id: s.document_id,
-          document_name: s.document_name,
-        }));
-
         return {
           response: data.answer,
-          sources: sourcesMapped,
-          followUps: data.followup_questions || [
-            'What are my main obligations?',
-            'When can this contract be terminated?',
-            'Are there automatic renewal terms?'
-          ],
+          sources: mapSources(data.sources),
+          followUps: data.followup_questions || DEFAULT_LEGAL_FOLLOW_UPS,
           conversationId: data.conversation_id,
         };
       }
@@ -200,24 +190,18 @@ export const chatService = {
     userQuery: string
   ): Promise<FreeformChatPayload> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/chat`, {
+      const res = await apiFetch('/chat', {
         method: 'POST',
-        headers,
+        headers: JSON_HEADERS,
         body: JSON.stringify({ question: userQuery }),
       });
 
       if (res.ok) {
         const data = await res.json();
-
         return {
           response: data.answer,
           sources: [],
-          followUps: data.followup_questions || [
-            'What should I check before signing a contract?',
-            'What are common risky clauses?',
-            'How do I negotiate better contract terms?'
-          ],
+          followUps: data.followup_questions || DEFAULT_FREEFORM_FOLLOW_UPS,
           conversationId: data.conversation_id,
         };
       }
@@ -227,4 +211,3 @@ export const chatService = {
     throw new Error('Unable to reach LegalLens backend. Please ensure the server is running and try again.');
   }
 };
-

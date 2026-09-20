@@ -1,26 +1,10 @@
 import { LegalDocument } from '../types';
-import { auth } from '../lib/firebase';
-
-const API_BASE_URL = (((import.meta as any).env?.VITE_API_BASE_URL || '') as string).replace(/\/+$/, '') + '/api';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  if (auth.currentUser) {
-    try {
-      const token = await auth.currentUser.getIdToken();
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-    } catch {
-      // Ignore token fetch errors in offline dev
-    }
-  }
-  return headers;
-}
+import { apiFetch } from '../lib/http';
 
 export const documentService = {
   async getDocuments(): Promise<LegalDocument[]> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents`, { headers });
+      const res = await apiFetch('/documents');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -51,8 +35,7 @@ export const documentService = {
 
   async getDocumentById(id: string): Promise<LegalDocument | undefined> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents/${id}`, { headers });
+      const res = await apiFetch(`/documents/${encodeURIComponent(id)}`);
       if (res.ok) {
         const data = await res.json();
         const meta = data.metadata || data;
@@ -82,15 +65,13 @@ export const documentService = {
   },
 
   async uploadDocument(file: File): Promise<LegalDocument> {
-    const headers = await getAuthHeaders();
     const formData = new FormData();
     formData.append('file', file);
 
     let res: Response;
     try {
-      res = await fetch(`${API_BASE_URL}/documents/upload`, {
+      res = await apiFetch('/documents/upload', {
         method: 'POST',
-        headers,
         body: formData,
       });
     } catch {
@@ -131,10 +112,8 @@ export const documentService = {
 
   async deleteDocument(id: string): Promise<boolean> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents/${id}`, {
+      const res = await apiFetch(`/documents/${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        headers,
       });
       return res.ok;
     } catch {
@@ -142,4 +121,3 @@ export const documentService = {
     }
   },
 };
-

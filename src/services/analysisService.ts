@@ -1,28 +1,11 @@
 import { LegalClause, ChecklistItem, LawyerQuestion, FullAnalysisResponse, RiskItem } from '../types';
-import { auth } from '../lib/firebase';
-
-const API_BASE_URL = (((import.meta as any).env?.VITE_API_BASE_URL || '') as string).replace(/\/+$/, '') + '/api';
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  if (auth.currentUser) {
-    try {
-      const token = await auth.currentUser.getIdToken();
-      headers['Authorization'] = `Bearer ${token}`;
-    } catch {
-      // Ignore token error in offline dev
-    }
-  }
-  return headers;
-}
+import { apiFetch } from '../lib/http';
 
 export const analysisService = {
   async analyzeDocument(documentId: string): Promise<FullAnalysisResponse | null> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analyze`, {
+      const res = await apiFetch(`/documents/${encodeURIComponent(documentId)}/analyze`, {
         method: 'POST',
-        headers,
       });
       if (res.ok) {
         const data: FullAnalysisResponse = await res.json();
@@ -36,8 +19,7 @@ export const analysisService = {
 
   async getAnalysis(documentId: string): Promise<FullAnalysisResponse | null> {
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analysis`, { headers });
+      const res = await apiFetch(`/documents/${encodeURIComponent(documentId)}/analysis`);
       if (res.ok) {
         const data: FullAnalysisResponse = await res.json();
         return data;
@@ -92,13 +74,13 @@ export const analysisService = {
     if (!analysis) return [];
     const checklist: ChecklistItem[] = [];
     const items = [
-      ...(analysis.obligations || []).map((ob, idx) => ({
+      ...(analysis.obligations || []).map((ob) => ({
         section: 'Obligations' as const,
         title: `Review obligation: ${ob.obligation}`,
         explanation: `This document requires: ${ob.obligation}. Deadline: ${ob.deadline}. Consequence of non-compliance: ${ob.consequence}.`,
         source: { page: ob.page, section: ob.section },
       })),
-      ...(analysis.payments || []).map((p, idx) => ({
+      ...(analysis.payments || []).map((p) => ({
         section: 'Payments' as const,
         title: `Verify payment: ${p.item}`,
         explanation: `This document requires ${p.amount} (${p.frequency}). Due: ${p.due_date}. Late fees: ${p.late_fees}.`,
@@ -127,4 +109,3 @@ export const analysisService = {
     return [];
   },
 };
-
